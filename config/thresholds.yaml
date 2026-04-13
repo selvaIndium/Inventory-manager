@@ -1,0 +1,32 @@
+thresholds:
+  healthy_dos_min: 14
+  watch_dos_min: 7
+  critical_dos_max: 7
+  overstock_dos_min: 60
+
+defaults:
+  safety_stock: 0
+  lead_time_days: 7
+
+cache:
+  ttl_graph_seconds: 86400
+  ttl_rules_seconds: 3600
+  ttl_metrics_seconds: 1800
+  max_size_mb: 500
+
+neo4j:
+  enabled: true
+  uri: "bolt://localhost:7687"
+  user: "neo4j"
+  password: "inventory123"
+  timeout_ms: 800
+
+ollama:
+  base_url: "http://localhost:11434"
+  model: "llama3.2:1b"
+  temperature: 0.1
+  timeout_ms: 4000
+
+output:
+  format: "json"
+  pretty_print: true

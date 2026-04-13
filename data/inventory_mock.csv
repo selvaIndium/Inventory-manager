@@ -1,0 +1,26 @@
+sku_id,name,category,current_stock,avg_daily_sales,lead_time_days,safety_stock,avg_daily_sales_7d,avg_daily_sales_30d
+SKU-001,USB-C Cable 2m,electronics,420,12,7,40,13,12
+SKU-002,Wireless Mouse,electronics,95,11,6,25,11,11
+SKU-003,Bluetooth Speaker Mini,electronics,30,8,7,20,9,8
+SKU-004,Phone Case Matte,electronics,900,10,5,30,8,10
+SKU-005,LED Desk Lamp,home,210,9,9,35,9,9
+SKU-006,Ceramic Dinner Set,home,72,8,8,18,7,8
+SKU-007,Microfiber Towels Pack,home,36,7,7,14,6,7
+SKU-008,Airtight Storage Jar,home,620,8,10,20,7,8
+SKU-009,Organic Basmati Rice,grocery,300,16,6,50,17,16
+SKU-010,Olive Oil 1L,grocery,84,10,7,22,10,10
+SKU-011,Granola Bars 12ct,grocery,32,6,5,12,7,6
+SKU-012,Instant Coffee 200g,grocery,700,9,7,25,9,9
+SKU-013,Cotton T-Shirt,apparel,260,13,8,30,12,13
+SKU-014,Running Socks 3pk,apparel,88,11,7,20,10,11
+SKU-015,Denim Jeans Slim,apparel,25,6,9,18,6,6
+SKU-016,Hoodie Fleece,apparel,480,7,10,28,8,7
+SKU-017,Shampoo Herbal 500ml,beauty,190,10,7,24,11,10
+SKU-018,Moisturizer SPF 30,beauty,70,9,8,16,9,9
+SKU-019,Face Wash Gentle,beauty,26,5,7,10,6,5
+SKU-020,Hair Serum Repair,beauty,560,8,9,20,7,8
+SKU-021,Notebook A5 3pk,stationery,340,12,6,26,12,12
+SKU-022,Gel Pens 10pk,stationery,92,10,5,15,10,10
+SKU-023,Sticky Notes Neon,stationery,28,7,6,12,8,7
+SKU-024,Printer Paper 500s,stationery,1100,14,8,40,13,14
+SKU-025,Water Bottle 1L,sports,165,10,7,18,10,10

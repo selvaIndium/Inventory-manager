@@ -1,0 +1,103 @@
+{
+  "categories": [
+    {
+      "id": "electronics",
+      "name": "Electronics",
+      "avg_dos_target": 28,
+      "reorder_sensitivity": "high"
+    },
+    {
+      "id": "home",
+      "name": "Home",
+      "avg_dos_target": 32,
+      "reorder_sensitivity": "medium"
+    },
+    {
+      "id": "grocery",
+      "name": "Grocery",
+      "avg_dos_target": 18,
+      "reorder_sensitivity": "high"
+    },
+    {
+      "id": "apparel",
+      "name": "Apparel",
+      "avg_dos_target": 35,
+      "reorder_sensitivity": "medium"
+    },
+    {
+      "id": "beauty",
+      "name": "Beauty",
+      "avg_dos_target": 30,
+      "reorder_sensitivity": "medium"
+    },
+    {
+      "id": "stationery",
+      "name": "Stationery",
+      "avg_dos_target": 26,
+      "reorder_sensitivity": "low"
+    },
+    {
+      "id": "sports",
+      "name": "Sports",
+      "avg_dos_target": 24,
+      "reorder_sensitivity": "medium"
+    }
+  ],
+  "seasons": [
+    {
+      "id": "back_to_school",
+      "name": "Back to School",
+      "start_month": 7,
+      "end_month": 9,
+      "demand_multiplier": 1.25
+    },
+    {
+      "id": "holiday_peak",
+      "name": "Holiday Peak",
+      "start_month": 11,
+      "end_month": 12,
+      "demand_multiplier": 1.35
+    },
+    {
+      "id": "summer_outdoor",
+      "name": "Summer Outdoor",
+      "start_month": 5,
+      "end_month": 8,
+      "demand_multiplier": 1.2
+    },
+    {
+      "id": "winter_apparel",
+      "name": "Winter Apparel",
+      "start_month": 10,
+      "end_month": 2,
+      "demand_multiplier": 1.3
+    }
+  ],
+  "skus": [
+    {"sku_id": "SKU-001", "name": "USB-C Cable 2m", "category_id": "electronics", "affected_seasons": ["holiday_peak"]},
+    {"sku_id": "SKU-002", "name": "Wireless Mouse", "category_id": "electronics", "affected_seasons": ["back_to_school", "holiday_peak"]},
+    {"sku_id": "SKU-003", "name": "Bluetooth Speaker Mini", "category_id": "electronics", "affected_seasons": ["holiday_peak"]},
+    {"sku_id": "SKU-004", "name": "Phone Case Matte", "category_id": "electronics", "affected_seasons": ["back_to_school"]},
+    {"sku_id": "SKU-005", "name": "LED Desk Lamp", "category_id": "home", "affected_seasons": ["holiday_peak"]},
+    {"sku_id": "SKU-006", "name": "Ceramic Dinner Set", "category_id": "home", "affected_seasons": ["holiday_peak"]},
+    {"sku_id": "SKU-007", "name": "Microfiber Towels Pack", "category_id": "home", "affected_seasons": []},
+    {"sku_id": "SKU-008", "name": "Airtight Storage Jar", "category_id": "home", "affected_seasons": []},
+    {"sku_id": "SKU-009", "name": "Organic Basmati Rice", "category_id": "grocery", "affected_seasons": ["holiday_peak"]},
+    {"sku_id": "SKU-010", "name": "Olive Oil 1L", "category_id": "grocery", "affected_seasons": ["holiday_peak"]},
+    {"sku_id": "SKU-011", "name": "Granola Bars 12ct", "category_id": "grocery", "affected_seasons": ["back_to_school"]},
+    {"sku_id": "SKU-012", "name": "Instant Coffee 200g", "category_id": "grocery", "affected_seasons": ["holiday_peak"]},
+    {"sku_id": "SKU-013", "name": "Cotton T-Shirt", "category_id": "apparel", "affected_seasons": ["summer_outdoor"]},
+    {"sku_id": "SKU-014", "name": "Running Socks 3pk", "category_id": "apparel", "affected_seasons": ["summer_outdoor"]},
+    {"sku_id": "SKU-015", "name": "Denim Jeans Slim", "category_id": "apparel", "affected_seasons": ["winter_apparel"]},
+    {"sku_id": "SKU-016", "name": "Hoodie Fleece", "category_id": "apparel", "affected_seasons": ["winter_apparel"]},
+    {"sku_id": "SKU-017", "name": "Shampoo Herbal 500ml", "category_id": "beauty", "affected_seasons": []},
+    {"sku_id": "SKU-018", "name": "Moisturizer SPF 30", "category_id": "beauty", "affected_seasons": ["summer_outdoor"]},
+    {"sku_id": "SKU-019", "name": "Face Wash Gentle", "category_id": "beauty", "affected_seasons": []},
+    {"sku_id": "SKU-020", "name": "Hair Serum Repair", "category_id": "beauty", "affected_seasons": []},
+    {"sku_id": "SKU-021", "name": "Notebook A5 3pk", "category_id": "stationery", "affected_seasons": ["back_to_school"]},
+    {"sku_id": "SKU-022", "name": "Gel Pens 10pk", "category_id": "stationery", "affected_seasons": ["back_to_school"]},
+    {"sku_id": "SKU-023", "name": "Sticky Notes Neon", "category_id": "stationery", "affected_seasons": ["back_to_school"]},
+    {"sku_id": "SKU-024", "name": "Printer Paper 500s", "category_id": "stationery", "affected_seasons": ["back_to_school"]},
+    {"sku_id": "SKU-025", "name": "Water Bottle 1L", "category_id": "sports", "affected_seasons": ["summer_outdoor"]}
+  ]
+}
