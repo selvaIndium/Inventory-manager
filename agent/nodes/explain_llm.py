@@ -25,19 +25,54 @@ def explain_llm_node(state: AgentState) -> AgentState:
     temperature = float(ollama_cfg.get("temperature", 0.1))
 
     system_prompt = Path("prompts/system_prompt.txt").read_text(encoding="utf-8")
+    expected_sku_ids = list(state["llm_prompts"].keys())
+    sku_inputs = [json.loads(item) for item in state["llm_prompts"].values()]
+    compact_inputs = [
+        {
+            "sku_id": item.get("sku_id"),
+            "status": item.get("status"),
+            "days_of_stock": round(float(item.get("days_of_stock", 0.0)), 1),
+            "reorder_qty": round(float(item.get("reorder_qty", 0.0)), 1),
+            "reorder_urgency_days": round(float(item.get("reorder_urgency_days", 0.0)), 1),
+            "velocity_trend": item.get("velocity_trend"),
+            "seasonal_factor": item.get("seasonal_factor", 1.0),
+            "risk_tags": item.get("risk_tags", []),
+        }
+        for item in sku_inputs
+    ]
+
     user_payload = {
-        "task": "Generate recommendations for all SKUs in one response.",
-        "required_format": {
+        "task": "Generate inventory recommendations for all SKUs in one response.",
+        "instruction": (
+            "Return JSON only. Include exactly one entry for every sku_id in expected_sku_ids. "
+            "Use concise explanations with advisory language. "
+            "Each explanation must be one sentence (max 22 words). "
+            "Each action must be <= 8 words."
+        ),
+        "expected_sku_ids": expected_sku_ids,
+        "sku_inputs": compact_inputs,
+    }
+
+    response_schema = {
+        "type": "object",
+        "properties": {
             "sku_recommendations": {
-                "<sku_id>": {
-                    "explanation": "string",
-                    "action": "string",
-                    "confidence": "high | medium | low",
-                }
+                "type": "object",
+                "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                        "explanation": {"type": "string"},
+                        "action": {"type": "string"},
+                        "confidence": {"type": "string"},
+                    },
+                    "required": ["explanation", "action", "confidence"],
+                },
             }
         },
-        "sku_inputs": [json.loads(item) for item in state["llm_prompts"].values()],
+        "required": ["sku_recommendations"],
     }
+
+    num_predict = int(ollama_cfg.get("num_predict", 1800))
 
     request_payload = {
         "model": model,
@@ -46,8 +81,8 @@ def explain_llm_node(state: AgentState) -> AgentState:
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
         ],
         "stream": False,
-        "format": "json",
-        "options": {"temperature": temperature},
+        "format": response_schema,
+        "options": {"temperature": temperature, "num_predict": num_predict},
     }
 
     try:
@@ -58,11 +93,24 @@ def explain_llm_node(state: AgentState) -> AgentState:
 
         content = raw.get("message", {}).get("content", "{}")
         payload = json.loads(content)
-        batched = payload.get("sku_recommendations", {}) if isinstance(payload, dict) else {}
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+
+        if isinstance(payload, dict) and "sku_recommendations" in payload:
+            batched = payload.get("sku_recommendations", {})
+        elif isinstance(payload, dict):
+            batched = payload
+        else:
+            batched = {}
+
         if not isinstance(batched, dict):
             raise ValueError("Invalid batched recommendation payload shape.")
+        if not batched:
+            raise ValueError("LLM returned empty recommendation map.")
 
-        for sku_id, rec in batched.items():
+        filled_count = 0
+        for sku_id in expected_sku_ids:
+            rec = batched.get(sku_id)
             if not isinstance(rec, dict):
                 continue
             explanation = str(rec.get("explanation", "")).strip()
@@ -78,6 +126,14 @@ def explain_llm_node(state: AgentState) -> AgentState:
                     "confidence": confidence if confidence in {"high", "medium", "low"} else "medium",
                 },
                 ensure_ascii=False,
+            )
+            filled_count += 1
+
+        if filled_count == 0:
+            raise ValueError("LLM response parsed but no usable SKU recommendations found.")
+        if filled_count < len(expected_sku_ids):
+            state["warnings"].append(
+                "LLM returned partial recommendations; template fallback will complete missing SKUs."
             )
 
         state["llm_retries"]["__batch__"] = 0

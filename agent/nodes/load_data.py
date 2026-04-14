@@ -10,6 +10,7 @@ from tools.server import call_mcp_tool_sync
 
 def load_data_node(state: AgentState) -> AgentState:
     """Load CSV/JSON data using MCP and build validated SKURecord objects."""
+    
     state["current_node"] = "load_data"
     data_path = Path(state["config"].get("data_path", "data/inventory_mock.csv"))
     tool_name = "load_json" if data_path.suffix.lower() == ".json" else "load_csv"

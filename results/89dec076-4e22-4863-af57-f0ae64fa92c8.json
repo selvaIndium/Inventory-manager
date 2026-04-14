@@ -1,6 +1,6 @@
 {
-  "run_id": "88d8aba3-302e-4d97-b212-34f04a07fdf9",
-  "generated_at": "2026-04-12T10:24:41.953471+00:00",
+  "run_id": "89dec076-4e22-4863-af57-f0ae64fa92c8",
+  "generated_at": "2026-04-14T15:48:01.159771+00:00",
   "summary": {
     "total_skus_analyzed": 25,
     "critical_count": 6,
@@ -527,7 +527,7 @@
     "partial_data": false,
     "errors": [],
     "warnings": [
-      "LLM batch call failed or timed out; using template fallback. Detail: [WinError 10061] No connection could be made because the target machine actively refused it",
+      "LLM batch call failed or timed out; using template fallback. Detail: timed out",
       "llm_fallback_used"
     ]
   },

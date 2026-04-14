@@ -25,7 +25,8 @@ ollama:
   base_url: "http://localhost:11434"
   model: "llama3.2:1b"
   temperature: 0.1
-  timeout_ms: 4000
+  timeout_ms: 40000
+  num_predict: 1800
 
 output:
   format: "json"
