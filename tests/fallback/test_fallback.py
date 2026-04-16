@@ -14,8 +14,7 @@ def _config() -> dict:
     return cfg
 
 
-def test_neo4j_disabled_falls_back(monkeypatch) -> None:
-    monkeypatch.setenv("NEO4J_ENABLED", "false")
+def test_graph_context_networkx_or_cache() -> None:
     payload = run_analysis(_config())
     assert payload["metadata"]["graph_source"] in {"networkx", "cache"}
 

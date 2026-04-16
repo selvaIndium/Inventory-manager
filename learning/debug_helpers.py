@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 from typing import Any, Dict, Tuple
@@ -35,11 +34,6 @@ def run_graph_with_timing(config: Dict[str, Any]) -> Tuple[Dict[str, Any], float
     payload = run_analysis(config)
     elapsed_ms = (time.perf_counter() - start) * 1000
     return payload, elapsed_ms
-
-
-def set_neo4j(enabled: bool) -> None:
-    """Enable or disable Neo4j lookup for deterministic fallback tests."""
-    os.environ["NEO4J_ENABLED"] = "true" if enabled else "false"
 
 
 def quick_output_checks(payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -14,16 +14,10 @@ cache:
   ttl_metrics_seconds: 1800
   max_size_mb: 500
 
-neo4j:
-  enabled: true
-  uri: "bolt://localhost:7687"
-  user: "neo4j"
-  password: "inventory123"
-  timeout_ms: 800
-
 ollama:
   base_url: "http://localhost:11434"
-  model: "llama3.2:1b"
+  model: "gemma4:31b-cloud"
+  api_key: "45042b1013744319ae290e935097087a.WvqBNkLeVmJyEPvWk8LoM-Z6"
   temperature: 0.1
   timeout_ms: 40000
   num_predict: 1800
@@ -31,3 +25,7 @@ ollama:
 output:
   format: "json"
   pretty_print: true
+
+agent:
+  mode: "deterministic"
+  max_steps: 3

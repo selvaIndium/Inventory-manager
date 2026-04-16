@@ -44,6 +44,12 @@ def parse_args() -> argparse.Namespace:
         default="table",
         help="Console output format",
     )
+    parser.add_argument(
+        "--agent-mode",
+        choices=["deterministic", "hybrid", "full"],
+        default="deterministic",
+        help="Select orchestration mode",
+    )
     return parser.parse_args()
 
 
@@ -180,6 +186,13 @@ def run_analysis(config: Dict[str, Any]) -> Dict[str, Any]:
         "llm_prompts": {},
         "llm_responses": {},
         "llm_retries": {},
+        "agent_step_count": 0,
+        "agent_max_steps": int(config.get("agent_max_steps", 3)),
+        "agent_scratchpad": [],
+        "agent_tool_history": [],
+        "agent_done": False,
+        "agent_pending_action": None,
+        "agent_fallback_reason": "",
         "current_node": "",
         "errors": [],
         "warnings": [],
@@ -211,6 +224,10 @@ def run_analysis(config: Dict[str, Any]) -> Dict[str, Any]:
             "config_version": "1.0.0",
             "execution_time_ms": 0,
             "partial_data": True,
+            "agent_mode": config.get("agent_mode", "deterministic"),
+            "agent_steps_executed": final_state.get("agent_step_count", 0),
+            "agent_tool_history": final_state.get("agent_tool_history", []),
+            "agent_fallback_reason": final_state.get("agent_fallback_reason", ""),
             "errors": final_state.get("errors", []),
             "warnings": final_state.get("warnings", []),
         },
@@ -230,6 +247,14 @@ def main() -> None:
     base_config["data_path"] = str(Path(args.data))
     base_config["config_path"] = str(Path(args.config))
     base_config["kg_seed_path"] = "data/kg_seed.json"
+
+    if isinstance(base_config.get("agent", {}), dict):
+        agent_cfg = base_config.get("agent", {})  
+    else:
+        agent_cfg = {}
+
+    base_config["agent_mode"] = args.agent_mode or str(agent_cfg.get("mode", "deterministic"))
+    base_config["agent_max_steps"] = int(agent_cfg.get("max_steps", base_config.get("agent_max_steps", 3)))
 
     overrides = _parse_scenario_overrides(args.scenario)
     scenario_config = _apply_overrides(base_config, overrides) if overrides else base_config

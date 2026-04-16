@@ -65,7 +65,6 @@ def test_fetch_rules_missing_file_returns_default(tmp_path: Path) -> None:
 
 def test_query_graph_networkx_fallback() -> None:
     config = {
-        "neo4j": {"enabled": False},
         "cache": {"ttl_graph_seconds": 1},
         "kg_seed_path": "data/kg_seed.json",
     }

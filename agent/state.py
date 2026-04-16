@@ -43,7 +43,7 @@ class SKUContext:
     seasonal_factor: float
     category_avg_dos: float
     risk_tags: List[str]
-    context_source: Literal["neo4j", "networkx", "cache", "default"]
+    context_source: Literal["networkx", "cache", "default"]
 
 
 @dataclass
@@ -82,6 +82,14 @@ class AgentState(TypedDict):
     llm_prompts: Dict[str, str]
     llm_responses: Dict[str, str]
     llm_retries: Dict[str, int]
+
+    agent_step_count: int
+    agent_max_steps: int
+    agent_scratchpad: List[str]
+    agent_tool_history: List[Dict[str, Any]]
+    agent_done: bool
+    agent_pending_action: Optional[Dict[str, Any]]
+    agent_fallback_reason: str
 
     current_node: str
     errors: List[Dict[str, str]]

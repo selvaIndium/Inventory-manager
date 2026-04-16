@@ -59,6 +59,7 @@ def create_mcp_server() -> FastMCP:
 MCP_SERVER = create_mcp_server()
 
 
+#this is how the tools are being called, u pass the tool name and the args inside.
 async def call_mcp_tool(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Invoke a registered MCP tool and return structured content."""
     result = await MCP_SERVER.call_tool(name, arguments)

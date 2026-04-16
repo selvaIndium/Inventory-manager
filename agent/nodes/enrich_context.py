@@ -47,7 +47,7 @@ def enrich_context_node(state: AgentState) -> AgentState:
                 seasonal_factor=float(payload.get("seasonal_factor", 1.0)),
                 category_avg_dos=float(payload.get("category_avg_dos", 30.0)),
                 risk_tags=list(payload.get("risk_tags", [])),
-                context_source=source if source in {"neo4j", "networkx", "cache", "default"} else "default",
+                context_source=source if source in {"networkx", "cache", "default"} else "default",
             )
         )
 

@@ -16,8 +16,7 @@ def _base_config(data_path: str) -> dict:
     return cfg
 
 
-def test_full_run_neo4j_unreachable_networkx(monkeypatch) -> None:
-    monkeypatch.setenv("NEO4J_ENABLED", "false")
+def test_full_run_networkx_available() -> None:
     payload = run_analysis(_base_config("data/inventory_mock.csv"))
     assert payload["recommendations"]
     assert payload["metadata"]["graph_source"] in {"networkx", "cache"}

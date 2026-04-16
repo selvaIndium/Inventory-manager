@@ -8,12 +8,12 @@
 | Field | Value |
 |---|---|
 | **Document Title** | Inventory Optimization AI Agent — PRD |
-| **Version** | 1.0.0 |
-| **Status** | Draft — Ready for Engineering Review |
+| **Version** | 1.1.0 |
+| **Status** | Draft — Updated for Hybrid Agentic Mode |
 | **Author(s)** | Senior PM / AI Systems Architect |
 | **Assessment Reference** | RA8 |
 | **Created** | 2025-07-01 |
-| **Last Updated** | 2025-07-01 |
+| **Last Updated** | 2026-04-16 |
 | **Target Release** | MVP (Local / Offline) |
 | **Review Cycle** | Per sprint, major version on architecture change |
 
@@ -24,6 +24,7 @@
 | 0.1 | 2025-06-15 | Architect | Initial outline |
 | 0.9 | 2025-06-28 | PM | Added LangGraph + MCP architecture |
 | 1.0 | 2025-07-01 | PM / Architect | Final PRD — production-ready draft |
+| 1.1 | 2026-04-16 | PM / Architect | Added phased hybrid-agentic implementation plan and removed Neo4j from MVP architecture |
 
 ---
 
@@ -47,7 +48,7 @@ The Inventory Optimization AI Agent is a **locally-executable, offline-first dec
 1. Ingests mock inventory data (CSV/JSON, 20–50 synthetic SKUs).
 2. Calculates key inventory health metrics using configurable rule thresholds.
 3. Reasons over those metrics using a stateful AI agent (LangGraph + local LLM via Ollama).
-4. Enriches decisions with seasonal/category context from a hybrid knowledge graph (Neo4j or NetworkX fallback).
+4. Enriches decisions with seasonal/category context from a NetworkX-first local knowledge graph.
 5. Produces structured, explainable recommendations with a mandatory human-review disclaimer.
 
 The agent is a **co-pilot, not an autopilot**. It never places orders or modifies systems. Every recommendation is framed as advisory input for a human decision-maker.
@@ -99,7 +100,7 @@ The agent is a **co-pilot, not an autopilot**. It never places orders or modifie
 | S-03 | Apply configurable status thresholds (🟢 Healthy / 🟡 Watch / 🔴 Critical / ⚠️ Overstock) |
 | S-04 | LangGraph orchestration with stateful, cyclic agent workflow |
 | S-05 | MCP tool layer (FastMCP) wrapping data loading, metric calculation, rule fetching, graph queries |
-| S-06 | Hybrid knowledge graph: Neo4j (EC2, primary) + NetworkX (in-memory fallback) |
+| S-06 | NetworkX in-memory knowledge graph (primary and only KG backend for MVP) |
 | S-07 | Latency guard via diskcache/SQLite for frequent lookups |
 | S-08 | Local Ollama LLM (qwen2.5:7b or llama3.1:8b) for explanation generation |
 | S-09 | Structured JSON output with plain-English narrative per SKU |
@@ -163,21 +164,17 @@ The agent is a **co-pilot, not an autopilot**. It never places orders or modifie
 │   MCP TOOL LAYER │ │   LLM LAYER     │  │   KNOWLEDGE LAYER            │
 │   (FastMCP)      │ │   (Ollama)      │  │                              │
 │                  │ │                 │  │  ┌────────────────────────┐  │
-│  ┌────────────┐  │ │  qwen2.5:7b or  │  │  │  Neo4j (EC2 Docker)    │  │
-│  │load_csv    │  │ │  llama3.1:8b    │  │  │  Primary KG            │  │
+│  ┌────────────┐  │ │  qwen2.5:7b or  │  │  │  NetworkX (In-Memory)  │  │
+│  │load_csv    │  │ │  llama3.1:8b    │  │  │  Primary Offline KG    │  │
 │  │load_json   │  │ │  (quantized)    │  │  │  (Seasonal / Category) │  │
 │  │calc_metrics│  │ │                 │  │  └────────────┬───────────┘  │
-│  │fetch_rules │  │ │  localhost:11434│  │               │ unreachable? │
+│  │fetch_rules │  │ │  localhost:11434│  │               │              │
 │  │query_graph │  │ │                 │  │               ▼              │
 │  │cache_get   │  │ └─────────────────┘  │  ┌────────────────────────┐  │
-│  │cache_set   │  │                      │  │  NetworkX (In-Memory)  │  │
-│  └────────────┘  │                      │  │  Offline Fallback KG   │  │
+│  │cache_set   │  │                      │  │  diskcache / SQLite    │  │
+│  └────────────┘  │                      │  │  Latency Guard Cache   │  │
 └──────────────────┘                      │  └────────────────────────┘  │
                                           │               │              │
-                                          │  ┌────────────▼───────────┐  │
-                                          │  │  diskcache / SQLite    │  │
-                                          │  │  Latency Guard Cache   │  │
-                                          │  └────────────────────────┘  │
                                           └──────────────────────────────┘
            │
            ▼
@@ -211,8 +208,8 @@ The agent is a **co-pilot, not an autopilot**. It never places orders or modifie
        ▼
 5. [enrich_context] node calls MCP tool query_graph
    → Checks diskcache first (< 50ms target)
-   → On cache miss: queries Neo4j (< 800ms timeout)
-   → On Neo4j timeout/fail: queries NetworkX fallback
+  → On cache miss: queries NetworkX in-memory graph
+  → On query failure: returns defaults (seasonal_factor=1.0, risk_tags=[])
    → Result: seasonal_factor, category_norms, risk_tags
        │
        ▼
@@ -287,7 +284,7 @@ class SKUContext:
     seasonal_factor: float                # multiplier from KG (1.0 = neutral)
     category_avg_dos: float               # avg days-of-stock for category
     risk_tags: List[str]                  # e.g. ["peak_season", "long_lead_time"]
-    context_source: Literal["neo4j", "networkx", "cache", "default"]
+    context_source: Literal["networkx", "cache", "default"]
 
 
 @dataclass
@@ -334,7 +331,7 @@ class AgentState(TypedDict):
     errors: List[Dict[str, str]]                  # {node, sku_id, message}
     warnings: List[str]
     partial_data: bool                            # True if some SKUs had missing fields
-    graph_source: str                             # "neo4j" | "networkx" | "cache"
+    graph_source: str                             # "networkx" | "cache" | "default"
     output_valid: bool
 
     # Final output
@@ -401,7 +398,7 @@ class AgentState(TypedDict):
 |---|---|---|---|---|
 | `load_data` | Parse CSV/JSON, validate schema, build SKURecord list | `load_csv`, `load_json` | 500ms | Retry once; set `partial_data=True` for bad rows |
 | `calculate_metrics` | Compute days_of_stock, reorder_qty, urgency, velocity | `calc_metrics` | 300ms | Use defaults; log warning |
-| `enrich_context` | Fetch seasonal/category context from KG or cache | `query_graph`, `cache_get` | 900ms | Activate `fallback_graph` sub-node |
+| `enrich_context` | Fetch seasonal/category context from NetworkX KG or cache | `query_graph`, `cache_get` | 300ms | Return default context |
 | `apply_rules` | Match thresholds → assign status, rule_results | `fetch_rules` | 200ms | Use default rule set |
 | `generate_recs` | Assemble per-SKU recommendation payload | None (internal) | 100ms | Emit error record |
 | `explain_llm` | Generate plain-English explanation via Ollama | None (direct HTTP) | 4000ms | Route to `template_explanation` |
@@ -584,10 +581,10 @@ ELSE                                          → 🔴  critical
     "seasonal_factor": "float (1.0 = neutral)",
     "category_avg_dos": "float",
     "risk_tags": "[array of strings]",
-    "source": "neo4j | networkx | cache | default"
+    "source": "networkx | cache | default"
   },
   "timeout_ms": 800,
-  "fallback": "If Neo4j unreachable or >800ms: try NetworkX; if unavailable: return defaults (seasonal_factor=1.0, risk_tags=[])",
+  "fallback": "If NetworkX query fails: return defaults (seasonal_factor=1.0, risk_tags=[])",
   "cache_key_pattern": "graph:{sku_id}:{query_type}:{date_yyyymmdd}"
 }
 ```
@@ -640,90 +637,12 @@ ELSE                                          → 🔴  critical
 
 ## 8. Knowledge Graph Strategy
 
-### 8.1 Neo4j Schema (EC2 Community Edition via Docker)
+### 8.1 NetworkX Primary Strategy (In-Memory)
 
-#### Node Labels
-
-```cypher
-// Category node — groups SKUs by type
-(:Category {
-  id: STRING,           // e.g. "electronics"
-  name: STRING,
-  avg_dos_target: FLOAT,
-  reorder_sensitivity: STRING  // "low" | "medium" | "high"
-})
-
-// SKU node — one per product
-(:SKU {
-  sku_id: STRING,
-  name: STRING,
-  category_id: STRING,
-  supplier_lead_time_days: INTEGER,
-  abc_class: STRING     // "A" | "B" | "C" (velocity classification)
-})
-
-// Season node — represents a named seasonal period
-(:Season {
-  id: STRING,           // e.g. "diwali_2025"
-  name: STRING,
-  start_month: INTEGER,
-  end_month: INTEGER,
-  demand_multiplier: FLOAT
-})
-
-// RuleTemplate node — reusable rule definitions
-(:RuleTemplate {
-  rule_id: STRING,
-  condition_type: STRING,
-  threshold_value: FLOAT,
-  action_template: STRING,
-  priority: INTEGER
-})
-```
-
-#### Relationships
-
-```cypher
-(:SKU)-[:BELONGS_TO]->(:Category)
-(:SKU)-[:AFFECTED_BY {weight: FLOAT}]->(:Season)
-(:Category)-[:HAS_RULE]->(:RuleTemplate)
-(:Season)-[:OVERLAPS_WITH]->(:Season)
-```
-
-#### Example Cypher Queries
-
-```cypher
-// Get seasonal factor for a SKU in current month
-MATCH (s:SKU {sku_id: $sku_id})-[r:AFFECTED_BY]->(sn:Season)
-WHERE sn.start_month <= $current_month <= sn.end_month
-RETURN sn.demand_multiplier AS seasonal_factor, r.weight AS relevance
-
-// Get category norms
-MATCH (s:SKU {sku_id: $sku_id})-[:BELONGS_TO]->(c:Category)
-RETURN c.avg_dos_target AS category_avg_dos, c.reorder_sensitivity
-
-// Get applicable rule templates
-MATCH (s:SKU {sku_id: $sku_id})-[:BELONGS_TO]->(c:Category)-[:HAS_RULE]->(r:RuleTemplate)
-RETURN r ORDER BY r.priority ASC
-```
-
-#### Docker Setup
-
-```bash
-docker run \
-  --name neo4j-inventory \
-  -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/inventory123 \
-  -v $HOME/neo4j/data:/data \
-  -d neo4j:5-community
-```
-
-### 8.2 NetworkX Fallback (In-Memory)
-
-**Trigger Conditions**:
-- Neo4j TCP connection refused (EC2 unreachable)
-- Neo4j query response time > 800ms
-- `NEO4J_ENABLED=false` environment flag
+**Decision**:
+- Neo4j implementation is removed from MVP scope.
+- NetworkX is the single knowledge graph implementation for reliability and local-first simplicity.
+- `query_graph` returns `source` values only from `networkx`, `cache`, or `default`.
 
 **Initialization** (at agent startup):
 
@@ -755,7 +674,7 @@ def build_fallback_graph(seed_path: str = "data/kg_seed.json") -> nx.DiGraph:
     return G
 ```
 
-**Query Interface** (mirrors Neo4j output contract):
+**Query Interface**:
 
 ```python
 def query_networkx(G: nx.DiGraph, sku_id: str, current_month: int) -> dict:
@@ -795,7 +714,6 @@ def query_networkx(G: nx.DiGraph, sku_id: str, current_month: int) -> dict:
 ```
 cache_get:        < 50ms   (target: < 10ms)
 networkx_query:   < 200ms
-neo4j_query:      < 800ms  (hard timeout; fallback triggered at 800ms)
 llm_call:         < 4000ms (hard timeout; template fallback at 4000ms)
 total_e2e:        < 5000ms (RA8 SLA)
 ```
@@ -838,7 +756,7 @@ total_e2e:        < 5000ms (RA8 SLA)
 | ID | Requirement | Priority |
 |---|---|---|
 | FR-04.1 | System SHALL query the knowledge graph for seasonal demand factors per SKU | P1 |
-| FR-04.2 | System SHALL fall back to NetworkX in-memory graph if Neo4j is unreachable or slow | P1 |
+| FR-04.2 | System SHALL use NetworkX in-memory graph as the default and only KG backend in MVP | P1 |
 | FR-04.3 | System SHALL use diskcache for repeated KG queries within the same session | P1 |
 
 ### FR-05 — Recommendation Generation
@@ -858,7 +776,7 @@ total_e2e:        < 5000ms (RA8 SLA)
 | FR-06.1 | System SHALL produce output as a valid JSON document conforming to the Output Schema (Section 11) | P0 |
 | FR-06.2 | System SHALL include a mandatory advisory disclaimer on all outputs | P0 |
 | FR-06.3 | System SHALL include a human-readable summary in CLI stdout | P0 |
-| FR-06.4 | System SHALL report the source of KG context (neo4j / networkx / cache / default) | P1 |
+| FR-06.4 | System SHALL report the source of KG context (networkx / cache / default) | P1 |
 | FR-06.5 | System SHALL include formula_used trace in per-SKU output | P1 |
 
 ### FR-07 — UI
@@ -880,8 +798,7 @@ total_e2e:        < 5000ms (RA8 SLA)
 | NFR-01.1 | End-to-end response time for 50 SKUs | ≤ 5,000ms |
 | NFR-01.2 | Data load + metric calculation | ≤ 800ms |
 | NFR-01.3 | KG context enrichment (cache hit) | ≤ 50ms |
-| NFR-01.4 | KG context enrichment (Neo4j) | ≤ 800ms |
-| NFR-01.5 | KG context enrichment (NetworkX) | ≤ 200ms |
+| NFR-01.4 | KG context enrichment (NetworkX) | ≤ 200ms |
 | NFR-01.6 | LLM explanation generation (all SKUs, batched) | ≤ 4,000ms |
 | NFR-01.7 | Output formatting + validation | ≤ 200ms |
 
@@ -891,8 +808,8 @@ total_e2e:        < 5000ms (RA8 SLA)
 |---|---|
 | NFR-02.1 | System SHALL operate fully without internet connectivity |
 | NFR-02.2 | LLM model SHALL be pre-pulled locally via `ollama pull` before first run |
-| NFR-02.3 | NetworkX fallback graph SHALL be pre-loaded from `data/kg_seed.json` at startup |
-| NFR-02.4 | System SHALL NOT make any external HTTP calls except to `localhost:11434` (Ollama) and optional EC2 Neo4j |
+| NFR-02.3 | NetworkX graph SHALL be pre-loaded from `data/kg_seed.json` at startup |
+| NFR-02.4 | System SHALL NOT make any external HTTP calls except to `localhost:11434` (Ollama) |
 
 ### NFR-03 — Resource Limits
 
@@ -908,7 +825,7 @@ total_e2e:        < 5000ms (RA8 SLA)
 
 | ID | Requirement |
 |---|---|
-| NFR-04.1 | System SHALL complete a run (with partial output) even if Neo4j and Ollama both fail |
+| NFR-04.1 | System SHALL complete a run (with partial output) even if NetworkX query and Ollama both fail |
 | NFR-04.2 | Each LangGraph node SHALL have explicit error handling with logged error records |
 | NFR-04.3 | LLM timeout SHALL trigger template_explanation — never a blank explanation field |
 | NFR-04.4 | System SHALL not crash on malformed CSV rows; invalid rows are skipped with warnings |
@@ -977,7 +894,7 @@ total_e2e:        < 5000ms (RA8 SLA)
           "seasonal_factor": { "type": "number" },
           "formula_used": { "type": "string" },
           "data_quality_flag": { "type": ["string", "null"] },
-          "context_source": { "type": "string", "enum": ["neo4j", "networkx", "cache", "default"] },
+          "context_source": { "type": "string", "enum": ["networkx", "cache", "default"] },
           "velocity_trend": { "type": "string", "enum": ["rising", "stable", "falling", "unknown"] }
         }
       }
@@ -1031,7 +948,7 @@ total_e2e:        < 5000ms (RA8 SLA)
   "seasonal_factor": 1.15,
   "formula_used": "reorder_qty = (45 × 7) + 50 − 165 = 200; adjusted for seasonal_factor 1.15 → 320",
   "data_quality_flag": null,
-  "context_source": "neo4j",
+  "context_source": "networkx",
   "velocity_trend": "rising"
 }
 ```
@@ -1083,6 +1000,51 @@ SKU Data:
 
 Respond ONLY with the JSON object described above.
 ```
+
+### 11.4 Phased Implementation Plan — Hybrid Agentic Mode
+
+### Phase 1 — Config and State Scaffolding
+
+- Add `agent_mode` in config: `deterministic | hybrid | full` (default: `deterministic`).
+- Extend `AgentState` with loop telemetry fields: `agent_step_count`, `agent_max_steps`, `agent_scratchpad`, `agent_tool_history`, `agent_done`.
+- Ensure deterministic mode behavior is unchanged.
+
+### Phase 2 — Agent Action Contract and Validation
+
+- Define strict JSON action schema for each planner step:
+  - `thought`
+  - `tool_name`
+  - `arguments`
+  - `done`
+- Validate `tool_name` against allowlist: `load_csv`, `load_json`, `calc_metrics`, `fetch_rules`, `query_graph`.
+- Reject invalid actions and continue with safe fallback.
+
+### Phase 3 — Planner and Executor Nodes
+
+- Add planner node that asks the LLM for exactly one tool action per turn.
+- Add executor node that calls MCP wrapper and stores observations.
+- Stop loop on `done=true` or `max_steps` reached.
+
+### Phase 4 — Graph Routing Integration
+
+- Keep deterministic linear route as default.
+- In hybrid mode, route through planner/executor loop and rejoin current formatting/validation path.
+- Prevent infinite loops with explicit step cap.
+
+### Phase 5 — CLI and Streamlit Controls
+
+- Add mode selector for CLI and Streamlit.
+- Surface diagnostics in output metadata:
+  - selected mode
+  - steps executed
+  - tool history
+  - fallback reason
+
+### Phase 6 — Validation and Regression Tests
+
+- Add deterministic regression tests to ensure unchanged baseline behavior.
+- Add hybrid-mode tests for happy path, invalid tool attempt, and timeout/fallback behavior.
+- Preserve output schema compatibility in all modes.
 
 ---
 
@@ -1142,8 +1104,8 @@ Respond ONLY with the JSON object described above.
 
 | Test ID | Scenario | Expected Result |
 |---|---|---|
-| IT-01 | Full run with 20 valid SKUs, Neo4j available | All 20 recs generated in <5s, source=neo4j |
-| IT-02 | Full run with Neo4j unreachable | All recs generated, source=networkx, no crash |
+| IT-01 | Full run with 20 valid SKUs using NetworkX | All 20 recs generated in <5s, source=networkx |
+| IT-02 | Full run with NetworkX seed load issue | All recs generated with default context source, no crash |
 | IT-03 | Full run with Ollama unavailable | All recs generated with template_explanation, no crash |
 | IT-04 | Mix of valid and invalid rows (5 invalid of 25) | 20 valid recs + 5 warnings in metadata |
 | IT-05 | Repeat run within cache TTL | KG queries served from cache, context_source=cache |
@@ -1152,18 +1114,18 @@ Respond ONLY with the JSON object described above.
 
 | Test ID | Fallback Triggered | Validation |
 |---|---|---|
-| FT-01 | Neo4j timeout (mock 900ms delay) | NetworkX query completes; source=networkx |
+| FT-01 | NetworkX query exception | Default context returned; source=default |
 | FT-02 | LLM timeout (mock 5s delay) | template_explanation used; no blank explanation field |
-| FT-03 | Both Neo4j and Ollama down | Run completes with defaults + template; partial_data=true where applicable |
+| FT-03 | Both NetworkX query and Ollama fail | Run completes with defaults + template; partial_data=true where applicable |
 | FT-04 | Empty input file | Graceful error; run_id returned; error logged in metadata.errors |
 
 ### 13.4 Performance Tests
 
 | Test ID | Scenario | SLA | Pass Criteria |
 |---|---|---|---|
-| PT-01 | 50 SKUs, Neo4j cache cold | ≤5,000ms | p95 < 5000ms over 10 runs |
-| PT-02 | 50 SKUs, Neo4j cache warm | ≤5,000ms | p95 < 3000ms over 10 runs |
-| PT-03 | 50 SKUs, NetworkX fallback | ≤5,000ms | p95 < 4000ms over 10 runs |
+| PT-01 | 50 SKUs, NetworkX cache cold | ≤5,000ms | p95 < 5000ms over 10 runs |
+| PT-02 | 50 SKUs, NetworkX cache warm | ≤5,000ms | p95 < 3000ms over 10 runs |
+| PT-03 | 50 SKUs, NetworkX only mode | ≤5,000ms | p95 < 4000ms over 10 runs |
 | PT-04 | Memory usage during run | ≤1 GB | Measured via `memory_profiler` |
 
 ### 13.5 Ethics & Output Quality Tests
@@ -1186,7 +1148,6 @@ Respond ONLY with the JSON object described above.
 |---|---|---|
 | Python | ≥ 3.11 | Runtime |
 | Ollama | Latest | Local LLM inference |
-| Docker | ≥ 24 | Neo4j (optional) |
 | Git | Any | Source control |
 
 ### 14.2 Project Structure
@@ -1200,7 +1161,7 @@ inventory-agent/
 ├── data/
 │   ├── inventory_mock.csv      # Synthetic SKU data (20–50 rows)
 │   ├── inventory_mock.json     # JSON alternative
-│   └── kg_seed.json            # NetworkX fallback graph seed
+│   └── kg_seed.json            # NetworkX graph seed
 ├── agent/
 │   ├── state.py                # AgentState TypedDict + dataclasses
 │   ├── graph.py                # LangGraph state machine definition
@@ -1222,8 +1183,7 @@ inventory-agent/
 │   ├── query_graph.py
 │   └── cache.py
 ├── knowledge/
-│   ├── neo4j_client.py         # Neo4j driver wrapper with timeout
-│   ├── networkx_graph.py       # Fallback graph builder + query
+│   ├── networkx_graph.py       # Primary graph builder + query
 │   └── cache_layer.py          # diskcache / SQLite wrapper
 ├── prompts/
 │   └── system_prompt.txt       # LLM system prompt template
@@ -1233,7 +1193,7 @@ inventory-agent/
 │   ├── fallback/
 │   └── performance/
 ├── requirements.txt
-├── docker-compose.yml          # Neo4j (optional)
+├── docker-compose.yml          # Reserved for optional local services
 └── README.md
 ```
 
@@ -1272,7 +1232,6 @@ langchain-core>=0.3.0
 fastmcp>=0.9.0
 
 # Knowledge graph
-neo4j>=5.0.0
 networkx>=3.2
 
 # LLM client
@@ -1317,13 +1276,6 @@ cache:
   ttl_metrics_seconds: 1800  # 30 minutes
   max_size_mb: 500
 
-neo4j:
-  enabled: true
-  uri: "bolt://your-ec2-ip:7687"
-  user: "neo4j"
-  password: "inventory123"
-  timeout_ms: 800
-
 ollama:
   base_url: "http://localhost:11434"
   model: "qwen2.5:7b"
@@ -1343,8 +1295,8 @@ python main.py --data data/inventory_mock.csv
 # Run with JSON data
 python main.py --data data/inventory_mock.json --format json
 
-# Run with Neo4j disabled (force NetworkX fallback)
-NEO4J_ENABLED=false python main.py --data data/inventory_mock.csv
+# Run in hybrid agentic mode
+python main.py --data data/inventory_mock.csv --agent-mode hybrid
 
 # Run with custom config
 python main.py --data data/inventory_mock.csv --config config/thresholds.yaml
@@ -1353,29 +1305,14 @@ python main.py --data data/inventory_mock.csv --config config/thresholds.yaml
 python main.py --data data/inventory_mock.csv --output results/run_001.json
 ```
 
-### 14.7 Starting Neo4j (Optional, EC2 or Local)
+### 14.7 Validating NetworkX KG Seed
 
 ```bash
-# Local Docker (for development)
-docker-compose up -d neo4j
+# Validate that the local seed file is readable
+python -c "import json; json.load(open('data/kg_seed.json', encoding='utf-8')); print('kg_seed.json valid')"
 
-# docker-compose.yml snippet:
-# services:
-#   neo4j:
-#     image: neo4j:5-community
-#     ports:
-#       - "7474:7474"
-#       - "7687:7687"
-#     environment:
-#       - NEO4J_AUTH=neo4j/inventory123
-#     volumes:
-#       - ./neo4j_data:/data
-
-# Seed the knowledge graph
-python knowledge/neo4j_seed.py --uri bolt://localhost:7687
-
-# Verify connectivity
-python -c "from knowledge.neo4j_client import test_connection; test_connection()"
+# Optional: quick import smoke test
+python -c "from knowledge.networkx_graph import build_fallback_graph; g = build_fallback_graph('data/kg_seed.json'); print(type(g).__name__)"
 ```
 
 ### 14.8 Running Tests
@@ -1390,8 +1327,8 @@ pytest tests/unit/ -v
 # Integration tests (requires Ollama running)
 pytest tests/integration/ -v
 
-# Fallback tests (Neo4j intentionally down)
-NEO4J_ENABLED=false pytest tests/fallback/ -v
+# Fallback tests
+pytest tests/fallback/ -v
 
 # Performance tests
 pytest tests/performance/ -v --benchmark-min-rounds=10
@@ -1443,7 +1380,7 @@ streamlit run app.py
 |---|---|---|
 | **Role-Based Access** | Per-user configuration profiles for planners vs. managers | Medium |
 | **Audit Log Compliance** | Immutable run history for audit trail and regulatory review | Medium |
-| **Cloud Deployment Option** | Containerized deployment on AWS ECS or GCP Cloud Run with optional managed Neo4j AuraDB | Low |
+| **Cloud Deployment Option** | Containerized deployment on AWS ECS or GCP Cloud Run | Low |
 | **Real Data Certification** | Security review and data classification process to onboard real (non-mock) inventory data | High |
 
 ---
