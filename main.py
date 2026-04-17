@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import math
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -14,6 +13,7 @@ from typing import Any, Dict, List
 
 from agent.graph import build_graph
 from agent.state import AgentState
+from cli_helpers import apply_overrides, generate_report, parse_scenario_overrides, print_comparison, print_table
 from tools.load_data import load_threshold_config
 
 DISCLAIMER = (
@@ -50,125 +50,10 @@ def parse_args() -> argparse.Namespace:
         default="deterministic",
         help="Select orchestration mode",
     )
+    parser.add_argument("--model", default=None, help="Override Ollama model (e.g. gemma3:4b)")
+    parser.add_argument("--sku", default=None, help="Analyze only one SKU id (e.g. SKU-001)")
+    parser.add_argument("--skus", default=None, help="Analyze a comma-separated SKU list (e.g. SKU-001,SKU-003)")
     return parser.parse_args()
-
-
-def _parse_scenario_overrides(scenarios: List[str]) -> Dict[str, float]:
-    """Parse --scenario key=value overrides."""
-    parsed: Dict[str, float] = {}
-    for item in scenarios:
-        if "=" not in item:
-            continue
-        key, value = item.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if not key:
-            continue
-        try:
-            parsed[key] = float(value)
-        except ValueError:
-            continue
-    return parsed
-
-
-def _apply_overrides(config: Dict[str, Any], overrides: Dict[str, float]) -> Dict[str, Any]:
-    """Apply threshold/default scenario overrides to config copy."""
-    updated = json.loads(json.dumps(config))
-    thresholds = updated.setdefault("thresholds", {})
-    defaults = updated.setdefault("defaults", {})
-
-    for key, value in overrides.items():
-        if key in {"healthy_dos_min", "watch_dos_min", "critical_dos_max", "overstock_dos_min"}:
-            thresholds[key] = value
-        elif key in {"lead_time", "lead_time_days"}:
-            defaults["lead_time_days"] = int(value)
-        elif key in {"safety_stock", "default_safety_stock"}:
-            defaults["safety_stock"] = value
-
-    return updated
-
-
-def _safe_number(value: float) -> str:
-    """Render finite and non-finite numbers safely for display."""
-    if isinstance(value, float) and math.isinf(value):
-        return "inf"
-    return f"{value:.2f}"
-
-
-def print_table(metrics: List[Dict[str, Any]]) -> None:
-    """Print a compact table to stdout."""
-    headers = ["sku_id", "status", "dos", "reorder_qty", "urgency_days", "trend"]
-    widths = [10, 10, 10, 12, 14, 9]
-
-    def row(values: List[str]) -> str:
-        return " ".join(value.ljust(width) for value, width in zip(values, widths))
-
-    print(row(headers))
-    print("-" * (sum(widths) + len(widths) - 1))
-
-    for item in metrics:
-        print(
-            row(
-                [
-                    str(item["sku_id"]),
-                    f"{item['status_emoji']} {item['status']}",
-                    _safe_number(float(item["days_of_stock"])),
-                    _safe_number(float(item["reorder_qty"])),
-                    _safe_number(float(item["reorder_urgency_days"])),
-                    item["velocity_trend"],
-                ]
-            )
-        )
-
-
-def _print_comparison(base_payload: Dict[str, Any], scenario_payload: Dict[str, Any]) -> None:
-    """Print side-by-side summary comparison baseline vs scenario."""
-    base = base_payload.get("summary", {})
-    scenario = scenario_payload.get("summary", {})
-    fields = ["critical_count", "watch_count", "healthy_count", "overstock_count"]
-
-    print("Scenario Comparison (baseline -> scenario)")
-    for field in fields:
-        left = int(base.get(field, 0))
-        right = int(scenario.get(field, 0))
-        print(f"- {field}: {left} -> {right} (delta {right - left:+d})")
-
-
-def _generate_report(payload: Dict[str, Any], output_path: Path) -> Path:
-    """Generate markdown report card with executive summary and top actions."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_path = output_path.parent / f"report_{timestamp}.md"
-
-    summary = payload.get("summary", {})
-    recommendations = payload.get("recommendations", [])
-    top_actions = [rec for rec in recommendations if rec.get("status") in {"critical", "watch"}][:5]
-
-    lines = [
-        "# Inventory Optimization Report Card",
-        "",
-        f"- Run ID: {payload.get('run_id', 'unknown')}",
-        f"- Generated At: {payload.get('generated_at', 'unknown')}",
-        "",
-        "## Executive Summary",
-        f"- Total SKUs analyzed: {summary.get('total_skus_analyzed', 0)}",
-        f"- Critical: {summary.get('critical_count', 0)}",
-        f"- Watch: {summary.get('watch_count', 0)}",
-        f"- Healthy: {summary.get('healthy_count', 0)}",
-        f"- Overstock: {summary.get('overstock_count', 0)}",
-        f"- Overall Health: {summary.get('overall_health', 'unknown')}",
-        "",
-        "## Top Actions",
-    ]
-
-    if top_actions:
-        for action in top_actions:
-            lines.append(f"- {action.get('sku_id')}: {action.get('recommended_action', 'No action provided')}")
-    else:
-        lines.append("- No high-priority actions identified in this run.")
-
-    lines.extend(["", "## Advisory Disclaimer", payload.get("disclaimer", DISCLAIMER)])
-    report_path.write_text("\n".join(lines), encoding="utf-8")
-    return report_path
 
 
 def run_analysis(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -247,6 +132,8 @@ def main() -> None:
     base_config["data_path"] = str(Path(args.data))
     base_config["config_path"] = str(Path(args.config))
     base_config["kg_seed_path"] = "data/kg_seed.json"
+    if args.model:
+        base_config.setdefault("ollama", {})["model"] = str(args.model).strip()
 
     if isinstance(base_config.get("agent", {}), dict):
         agent_cfg = base_config.get("agent", {})  
@@ -256,21 +143,29 @@ def main() -> None:
     base_config["agent_mode"] = args.agent_mode or str(agent_cfg.get("mode", "deterministic"))
     base_config["agent_max_steps"] = int(agent_cfg.get("max_steps", base_config.get("agent_max_steps", 3)))
 
-    overrides = _parse_scenario_overrides(args.scenario)
-    scenario_config = _apply_overrides(base_config, overrides) if overrides else base_config
+    selected_skus: List[str] = []
+    if args.sku:
+        selected_skus.append(args.sku.strip())
+    if args.skus:
+        selected_skus.extend([item.strip() for item in args.skus.split(",") if item.strip()])
+    if selected_skus:
+        base_config["analysis_sku_ids"] = sorted(set(selected_skus))
+
+    overrides = parse_scenario_overrides(args.scenario)
+    scenario_config = apply_overrides(base_config, overrides) if overrides else base_config
     if overrides:
         scenario_config["scenario_overrides"] = overrides
     payload = run_analysis(scenario_config)
 
     if overrides:
         baseline_payload = run_analysis(base_config)
-        _print_comparison(baseline_payload, payload)
+        print_comparison(baseline_payload, payload)
 
     output_path = Path(args.output) if args.output else Path("results") / f"{payload['run_id']}.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
-    report_path = None if args.no_report else _generate_report(payload, output_path)
+    report_path = None if args.no_report else generate_report(payload, output_path, disclaimer=DISCLAIMER)
 
     if args.format == "json":
         print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))

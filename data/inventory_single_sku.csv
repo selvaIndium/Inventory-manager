@@ -1,0 +1,2 @@
+sku_id,name,category,current_stock,avg_daily_sales,lead_time_days,safety_stock,avg_daily_sales_7d,avg_daily_sales_30d
+SKU-001,USB-C Cable 2m,electronics,420,12,7,40,13,12

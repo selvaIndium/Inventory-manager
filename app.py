@@ -98,6 +98,13 @@ def _filter_payload_for_skus(payload: Dict[str, Any], selected_skus: List[str]) 
     return out
 
 
+def _normalize_selected_skus(analysis_scope: str, selected_skus: List[str]) -> List[str]:
+    """Return cleaned selected SKU list for config-level scoping."""
+    if analysis_scope == "All SKUs":
+        return []
+    return [str(item).strip() for item in selected_skus if str(item).strip()]
+
+
 def _get_ollama_models(base_url: str, api_key: str) -> Tuple[bool, List[str], str]:
     """Fetch installed Ollama models from local runtime."""
     headers = {"Content-Type": "application/json"}
@@ -538,6 +545,8 @@ def main() -> None:
                 if uploaded is None:
                     st.error("Please upload a CSV or JSON file first.")
                     return
+                
+                #writing it to a temp file.
                 data_path = Path(temp_dir) / uploaded.name
                 data_path.write_bytes(uploaded.read())
                 effective_data_path = str(data_path)
@@ -565,6 +574,7 @@ def main() -> None:
             )
             config.setdefault("ollama", {})["batch_size"] = 5
             config["agent_max_steps"] = agent_max_steps
+            config["analysis_sku_ids"] = _normalize_selected_skus(analysis_scope, selected_skus)
 
             start = time.perf_counter()
             if agent_mode == "deterministic":
