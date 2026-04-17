@@ -20,6 +20,10 @@ from agent.state import AgentState
 
 def _route_after_generate(state: AgentState) -> str:
     """Route to deterministic LLM path or hybrid planner loop."""
+    mode = str(state["config"].get("mode", "thinking")).lower()
+    if mode == "fast":
+        return "explain_llm"
+
     mode = str(state["config"].get("agent_mode", "deterministic"))
     return "planner_action" if mode in {"hybrid", "full"} else "explain_llm"
 

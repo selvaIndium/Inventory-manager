@@ -30,8 +30,7 @@ from main import DISCLAIMER, run_analysis
 from tools.load_data import load_threshold_config
 
 
-CLOUD_MODEL_NAME = "gemma4:31b-cloud"
-CLOUD_MODEL_ALIAS = "gemma4:31b:cloud"
+DEFAULT_MODEL_NAME = "gemma3:4b"
 
 
 def _append_log(logs: List[str], level: str, message: str) -> None:
@@ -117,13 +116,10 @@ def _get_ollama_models(base_url: str, api_key: str) -> Tuple[bool, List[str], st
             response.raise_for_status()
             payload = response.json()
         models = [item.get("name", "") for item in payload.get("models", []) if item.get("name")]
-        if CLOUD_MODEL_NAME not in models:
-            models.append(CLOUD_MODEL_NAME)
-        if CLOUD_MODEL_ALIAS not in models:
-            models.append(CLOUD_MODEL_ALIAS)
+        models = sorted({name for name in models if str(name).strip()})
         return True, models, "Ollama reachable"
     except Exception as exc:
-        return False, [CLOUD_MODEL_NAME, CLOUD_MODEL_ALIAS], f"Ollama unreachable: {exc}"
+        return False, [DEFAULT_MODEL_NAME], f"Ollama unreachable: {exc}"
 
 
 def _build_config(
@@ -135,6 +131,8 @@ def _build_config(
     timeout_ms: int,
     temperature: float,
     num_predict: int,
+    mode: str,
+    fast_template_only: bool,
     agent_mode: str,
     scenario_overrides: Dict[str, float],
 ) -> Dict[str, Any]:
@@ -151,9 +149,18 @@ def _build_config(
     cfg.setdefault("ollama", {})["planner_timeout_ms"] = timeout_ms
     cfg.setdefault("ollama", {})["temperature"] = temperature
     cfg.setdefault("ollama", {})["num_predict"] = num_predict
-    cfg["agent_mode"] = agent_mode
+    cfg["mode"] = mode
+    cfg["fast_template_only"] = fast_template_only
+    cfg["agent_mode"] = "deterministic" if mode == "fast" else agent_mode
     agent_cfg = cfg.get("agent", {}) if isinstance(cfg.get("agent", {}), dict) else {}
     cfg["agent_max_steps"] = int(agent_cfg.get("max_steps", cfg.get("agent_max_steps", 3)))
+
+    if mode == "fast":
+        cfg.setdefault("ollama", {})["num_predict"] = min(int(cfg["ollama"].get("num_predict", num_predict)), 900)
+        cfg.setdefault("ollama", {})["timeout_ms"] = min(int(cfg["ollama"].get("timeout_ms", timeout_ms)), 12000)
+        cfg.setdefault("ollama", {})["planner_timeout_ms"] = min(int(cfg["ollama"].get("planner_timeout_ms", timeout_ms)), 2000)
+    else:
+        cfg.setdefault("ollama", {})["planner_timeout_ms"] = int(cfg["ollama"].get("timeout_ms", timeout_ms))
 
     if scenario_overrides:
         cfg["scenario_overrides"] = scenario_overrides
@@ -197,7 +204,7 @@ def _run_analysis_streaming(config: Dict[str, Any], status_box, progress_bar, lo
     state = _initial_state(config)
     logs: List[str] = []
 
-    _append_log(logs, "info", "Run started in deterministic mode.")
+    _append_log(logs, "info", "Run started in fast mode.")
     _append_log(logs, "info", f"Data path: {config.get('data_path', 'unknown')}")
     _render_logs(log_box, logs)
 
@@ -360,6 +367,11 @@ def _render_status_panel(payload: Dict[str, Any], elapsed_ms: float | None) -> N
     col5.metric("Runtime (ms)", int(elapsed_ms) if elapsed_ms is not None else 0)
 
     fallback_used = any("fallback" in str(item).lower() for item in warnings)
+    metadata = payload.get("metadata", {})
+    st.caption(
+        f"Mode: {metadata.get('mode', 'thinking')} | Graph used: {metadata.get('graph_used', True)} | "
+        f"LLM strategy: {metadata.get('llm_strategy', 'llm_full')}"
+    )
     if fallback_used:
         st.warning("LLM fallback used for all or part of this run. Check Diagnostics tab.")
     else:
@@ -429,31 +441,42 @@ def _render_diagnostics(payload: Dict[str, Any], model_name: str) -> None:
     warnings = metadata.get("warnings", [])
     errors = metadata.get("errors", [])
 
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Mode", str(metadata.get("mode", "thinking")))
+    m2.metric("Graph Used", "Yes" if bool(metadata.get("graph_used", True)) else "No")
+    m3.metric("Planner Steps", int(metadata.get("agent_steps_executed", 0)))
+    m4.metric("Warnings", len(warnings))
+
+    st.markdown("#### Runtime Context")
     st.write(f"Model configured: `{model_name}`")
     st.write(f"Graph source used: `{metadata.get('graph_source', 'unknown')}`")
+    st.write(f"LLM strategy: `{metadata.get('llm_strategy', 'llm_full')}`")
+    st.write(f"Planner used: `{metadata.get('planner_used', False)}`")
     st.write(f"Partial data: `{metadata.get('partial_data', False)}`")
+
     st.write(f"Agent mode: `{metadata.get('agent_mode', 'deterministic')}`")
     st.write(f"Agent steps executed: `{metadata.get('agent_steps_executed', 0)}`")
     fallback_reason = str(metadata.get("agent_fallback_reason", "")).strip()
     if fallback_reason:
         st.info(f"Agent fallback reason: {fallback_reason}")
 
+    st.markdown("#### Warnings and Errors")
     if warnings:
-        st.warning("Warnings")
+        st.warning(f"Warnings ({len(warnings)})")
         st.code("\n".join(str(item) for item in warnings), language="text")
     else:
         st.success("No warnings reported.")
 
     if errors:
-        st.error("Errors")
+        st.error(f"Errors ({len(errors)})")
         st.code(json.dumps(errors, indent=2, ensure_ascii=False), language="json")
     else:
         st.success("No errors reported.")
 
     tool_history = metadata.get("agent_tool_history", [])
     if tool_history:
-        st.subheader("Agent Tool History")
-        st.json(tool_history)
+        st.markdown("#### Agent Tool History")
+        st.dataframe(pd.DataFrame(tool_history), use_container_width=True, hide_index=True)
 
 
 def main() -> None:
@@ -465,71 +488,147 @@ def main() -> None:
 
     base_cfg = load_threshold_config("config/thresholds.yaml")
 
+    default_key = os.environ.get("OLLAMA_API_KEY", "")
+    default_base_url = base_cfg.get("ollama", {}).get("base_url", "http://localhost:11434")
+    default_model = base_cfg.get("ollama", {}).get("model", DEFAULT_MODEL_NAME)
+
+    if "ui_cfg" not in st.session_state:
+        st.session_state["ui_cfg"] = {
+            "base_url": default_base_url,
+            "api_key": default_key,
+            "model": default_model,
+            "timeout_ms": int(base_cfg.get("ollama", {}).get("timeout_ms", 40000)),
+            "temperature": float(base_cfg.get("ollama", {}).get("temperature", 0.1)),
+            "num_predict": int(base_cfg.get("ollama", {}).get("num_predict", 1800)),
+            "agent_mode": "hybrid",
+            "agent_max_steps": int(base_cfg.get("agent", {}).get("max_steps", 3)),
+            "apply_scenario": False,
+            "lead_time_override": 7.0,
+            "safety_stock_override": 0.0,
+            "analysis_scope": "All SKUs",
+            "selected_skus": [],
+            "fast_template_only": False,
+        }
+
+    ui_cfg = st.session_state["ui_cfg"]
+
     with st.sidebar:
-        st.header("Run Configuration")
+        st.header("Run")
+        mode = st.radio("Mode", ["fast", "thinking"], index=0 if ui_cfg.get("mode", "fast") == "fast" else 1)
+        ui_cfg["mode"] = mode
 
         data_mode = st.radio("Data Source", ["Upload file", "Use mock dataset"], horizontal=False)
         uploaded = None
         if data_mode == "Upload file":
             uploaded = st.file_uploader("Upload inventory CSV or JSON", type=["csv", "json"])
 
-        llm_profile = st.radio("LLM Profile", ["Quality (recommended)", "Strict latency"], index=0)
-        default_timeout = 40000 if llm_profile.startswith("Quality") else 4000
-        default_predict = 1800 if llm_profile.startswith("Quality") else 900
+        run_clicked = st.button("Run Analysis", type="primary", use_container_width=True)
+        st.caption("Tip: use settings (top-right) for advanced controls")
 
-        base_url = st.text_input("Ollama Base URL", value=base_cfg.get("ollama", {}).get("base_url", "http://localhost:11434"))
-        default_key = os.environ.get("OLLAMA_API_KEY", "")
-        ollama_api_key = st.text_input("Ollama API Key", value=default_key, type="password")
+    if "show_settings" not in st.session_state:
+        st.session_state["show_settings"] = False
 
-        ok, models, ollama_msg = _get_ollama_models(base_url, ollama_api_key)
+    top_title_col, top_settings_col = st.columns([8, 1])
+    with top_title_col:
+        st.markdown("### Inventory Optimization")
+        st.caption("Fast mode for speed, Thinking mode for deep graph-aware analysis.")
+    with top_settings_col:
+        if st.button("⚙ Settings", use_container_width=True):
+            st.session_state["show_settings"] = not st.session_state["show_settings"]
+
+    with st.expander("Settings", expanded=bool(st.session_state.get("show_settings", False))):
+        st.subheader("LLM")
+        ui_cfg["base_url"] = st.text_input("Ollama Base URL", value=ui_cfg.get("base_url", default_base_url))
+        ui_cfg["api_key"] = st.text_input("Ollama API Key", value=ui_cfg.get("api_key", default_key), type="password")
+
+        ok, models, ollama_msg = _get_ollama_models(ui_cfg["base_url"], ui_cfg["api_key"])
         if ok:
             st.success(ollama_msg)
         else:
             st.error(ollama_msg)
 
-        model_default = base_cfg.get("ollama", {}).get("model", CLOUD_MODEL_NAME)
+        model_default = str(ui_cfg.get("model", default_model))
         if model_default not in models:
             models = [model_default] + models
-        if models:
-            model = st.selectbox("Ollama Model", options=models, index=models.index(model_default) if model_default in models else 0)
+        ui_cfg["model"] = st.selectbox(
+            "Ollama Model",
+            options=models,
+            index=models.index(model_default) if model_default in models else 0,
+        )
+
+        timeout_default = 12000 if mode == "fast" else 40000
+        num_predict_default = 900 if mode == "fast" else 1800
+        ui_cfg["timeout_ms"] = int(
+            st.slider(
+                "LLM Timeout (ms, 0 = wait indefinitely)",
+                min_value=0,
+                max_value=120000,
+                value=int(ui_cfg.get("timeout_ms", timeout_default)),
+                step=1000,
+            )
+        )
+        ui_cfg["temperature"] = float(
+            st.slider("Temperature", min_value=0.0, max_value=1.0, value=float(ui_cfg.get("temperature", 0.1)), step=0.05)
+        )
+        ui_cfg["num_predict"] = int(
+            st.slider(
+                "Max Tokens (num_predict)",
+                min_value=200,
+                max_value=4000,
+                value=int(ui_cfg.get("num_predict", num_predict_default)),
+                step=100,
+            )
+        )
+
+        st.subheader("Reasoning")
+        if mode == "thinking":
+            mode_options = ["hybrid", "full"]
+            current_agent_mode = str(ui_cfg.get("agent_mode", "hybrid"))
+            if current_agent_mode not in mode_options:
+                current_agent_mode = "hybrid"
+            ui_cfg["agent_mode"] = st.selectbox("Thinking strategy", options=mode_options, index=mode_options.index(current_agent_mode))
+            ui_cfg["agent_max_steps"] = int(
+                st.slider("Agent max steps", min_value=1, max_value=8, value=int(ui_cfg.get("agent_max_steps", 3)), step=1)
+            )
+            ui_cfg["fast_template_only"] = False
         else:
-            model = st.text_input("Ollama Model", value=model_default)
+            ui_cfg["agent_mode"] = "deterministic"
+            ui_cfg["fast_template_only"] = st.toggle(
+                "Fast mode template-only",
+                value=bool(ui_cfg.get("fast_template_only", False)),
+                help="Skip LLM explanation step and use template output only.",
+            )
 
-        timeout_ms = int(st.slider("LLM Timeout (ms, 0 = wait indefinitely)", min_value=0, max_value=120000, value=default_timeout, step=1000))
-        temperature = float(st.slider("Temperature", min_value=0.0, max_value=1.0, value=0.1, step=0.05))
-        num_predict = int(st.slider("Max Tokens (num_predict)", min_value=400, max_value=4000, value=default_predict, step=100))
+        st.subheader("Scenario")
+        ui_cfg["apply_scenario"] = st.checkbox("Enable what-if overrides", value=bool(ui_cfg.get("apply_scenario", False)))
+        ui_cfg["lead_time_override"] = float(
+            st.number_input("lead_time_days", min_value=1.0, max_value=90.0, value=float(ui_cfg.get("lead_time_override", 7.0)), step=1.0)
+        )
+        ui_cfg["safety_stock_override"] = float(
+            st.number_input("safety_stock", min_value=0.0, max_value=1000.0, value=float(ui_cfg.get("safety_stock_override", 0.0)), step=1.0)
+        )
 
-        st.header("Agent Mode")
-        mode_options = ["deterministic", "hybrid", "full"]
-        mode_default = str(base_cfg.get("agent", {}).get("mode", "deterministic"))
-        default_index = mode_options.index(mode_default) if mode_default in mode_options else 0
-        agent_mode = st.selectbox("Mode", options=mode_options, index=default_index)
-        default_max_steps = int(base_cfg.get("agent", {}).get("max_steps", 3))
-        agent_max_steps = int(st.slider("Agent max steps", min_value=1, max_value=8, value=default_max_steps, step=1))
-
-        st.header("Scenario Overrides")
-        apply_scenario = st.checkbox("Enable what-if overrides", value=False)
-        lead_time_override = float(st.number_input("lead_time_days", min_value=1.0, max_value=90.0, value=7.0, step=1.0))
-        safety_stock_override = float(st.number_input("safety_stock", min_value=0.0, max_value=1000.0, value=0.0, step=1.0))
-
-        st.header("SKU Scope")
-        analysis_scope = st.radio("Analysis Type", ["All SKUs", "Single SKU", "Multiple SKUs"], index=0)
+        st.subheader("SKU Scope")
         sku_options = _get_sku_options(data_mode, uploaded)
+        ui_cfg["analysis_scope"] = st.radio(
+            "Analysis Type",
+            ["All SKUs", "Single SKU", "Multiple SKUs"],
+            index=["All SKUs", "Single SKU", "Multiple SKUs"].index(str(ui_cfg.get("analysis_scope", "All SKUs"))),
+        )
         selected_skus: List[str] = []
-        if analysis_scope == "Single SKU":
+        if ui_cfg["analysis_scope"] == "Single SKU":
             selected = st.selectbox("Select SKU", options=sku_options) if sku_options else ""
             selected_skus = [selected] if selected else []
-        elif analysis_scope == "Multiple SKUs":
-            selected_skus = st.multiselect("Select SKUs", options=sku_options)
+        elif ui_cfg["analysis_scope"] == "Multiple SKUs":
+            selected_skus = st.multiselect("Select SKUs", options=sku_options, default=ui_cfg.get("selected_skus", []))
+        ui_cfg["selected_skus"] = selected_skus
 
-        if analysis_scope == "All SKUs":
+        if ui_cfg["analysis_scope"] == "All SKUs":
             st.caption(f"Scope: all available SKUs ({len(sku_options)})")
-        elif analysis_scope == "Single SKU":
+        elif ui_cfg["analysis_scope"] == "Single SKU":
             st.caption(f"Scope: {len(selected_skus)} SKU selected")
         else:
             st.caption(f"Scope: {len(selected_skus)} SKUs selected")
-
-        run_clicked = st.button("Run Analysis", type="primary", use_container_width=True)
 
     if "last_payload" not in st.session_state:
         st.session_state["last_payload"] = None
@@ -554,37 +653,41 @@ def main() -> None:
                 effective_data_path = "data/inventory_mock.csv"
 
             scenario_overrides: Dict[str, float] = {}
-            if apply_scenario:
+            if bool(ui_cfg.get("apply_scenario", False)):
                 scenario_overrides = {
-                    "lead_time_days": lead_time_override,
-                    "safety_stock": safety_stock_override,
+                    "lead_time_days": float(ui_cfg.get("lead_time_override", 7.0)),
+                    "safety_stock": float(ui_cfg.get("safety_stock_override", 0.0)),
                 }
 
             config = _build_config(
                 base_cfg=base_cfg,
                 data_path=effective_data_path,
-                ollama_base_url=base_url,
-                ollama_model=model,
-                ollama_api_key=ollama_api_key,
-                timeout_ms=timeout_ms,
-                temperature=temperature,
-                num_predict=num_predict,
-                agent_mode=agent_mode,
+                ollama_base_url=str(ui_cfg.get("base_url", default_base_url)),
+                ollama_model=str(ui_cfg.get("model", default_model)),
+                ollama_api_key=str(ui_cfg.get("api_key", default_key)),
+                timeout_ms=int(ui_cfg.get("timeout_ms", 40000)),
+                temperature=float(ui_cfg.get("temperature", 0.1)),
+                num_predict=int(ui_cfg.get("num_predict", 1800)),
+                mode=str(ui_cfg.get("mode", "fast")),
+                fast_template_only=bool(ui_cfg.get("fast_template_only", False)),
+                agent_mode=str(ui_cfg.get("agent_mode", "deterministic")),
                 scenario_overrides=scenario_overrides,
             )
             config.setdefault("ollama", {})["batch_size"] = 5
-            config["agent_max_steps"] = agent_max_steps
+            config["agent_max_steps"] = int(ui_cfg.get("agent_max_steps", 3))
+            analysis_scope = str(ui_cfg.get("analysis_scope", "All SKUs"))
+            selected_skus = list(ui_cfg.get("selected_skus", []))
             config["analysis_sku_ids"] = _normalize_selected_skus(analysis_scope, selected_skus)
 
             start = time.perf_counter()
-            if agent_mode == "deterministic":
+            if str(ui_cfg.get("mode", "fast")) == "fast":
                 payload = _run_analysis_streaming(config, status_box=run_status, progress_bar=run_progress, log_box=run_logs)
             else:
                 hybrid_logs: List[str] = []
-                _append_log(hybrid_logs, "info", f"Run started in {agent_mode} mode.")
+                _append_log(hybrid_logs, "info", "Run started in thinking mode.")
                 _append_log(hybrid_logs, "info", "Executing planner/executor loop via LangGraph...")
                 _render_logs(run_logs, hybrid_logs)
-                run_status.info(f"Running {agent_mode} mode via planner/executor loop...")
+                run_status.info("Running thinking mode via planner/executor loop...")
                 run_progress.progress(30)
                 payload = run_analysis(config)
                 metadata = payload.get("metadata", {})
@@ -629,7 +732,7 @@ def main() -> None:
         _render_recommendations(payload)
 
     with tab2:
-        _render_diagnostics(payload, model_name=model)
+        _render_diagnostics(payload, model_name=str(ui_cfg.get("model", default_model)))
 
     with tab3:
         st.download_button(

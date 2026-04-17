@@ -50,6 +50,17 @@ def parse_args() -> argparse.Namespace:
         default="deterministic",
         help="Select orchestration mode",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["fast", "thinking"],
+        default="fast",
+        help="Top-level mode: fast (no graph) or thinking (graph-enabled)",
+    )
+    parser.add_argument(
+        "--fast-template-only",
+        action="store_true",
+        help="In fast mode, skip LLM and use template explanations only",
+    )
     parser.add_argument("--model", default=None, help="Override Ollama model (e.g. gemma3:4b)")
     parser.add_argument("--sku", default=None, help="Analyze only one SKU id (e.g. SKU-001)")
     parser.add_argument("--skus", default=None, help="Analyze a comma-separated SKU list (e.g. SKU-001,SKU-003)")
@@ -132,6 +143,8 @@ def main() -> None:
     base_config["data_path"] = str(Path(args.data))
     base_config["config_path"] = str(Path(args.config))
     base_config["kg_seed_path"] = "data/kg_seed.json"
+    base_config["mode"] = args.mode
+    base_config["fast_template_only"] = bool(args.fast_template_only)
     if args.model:
         base_config.setdefault("ollama", {})["model"] = str(args.model).strip()
 
@@ -140,7 +153,12 @@ def main() -> None:
     else:
         agent_cfg = {}
 
-    base_config["agent_mode"] = args.agent_mode or str(agent_cfg.get("mode", "deterministic"))
+    if args.mode == "fast":
+        base_config["agent_mode"] = "deterministic"
+        base_config.setdefault("ollama", {}).setdefault("num_predict", 900)
+        base_config.setdefault("ollama", {}).setdefault("timeout_ms", 12000)
+    else:
+        base_config["agent_mode"] = args.agent_mode or str(agent_cfg.get("mode", "hybrid"))
     base_config["agent_max_steps"] = int(agent_cfg.get("max_steps", base_config.get("agent_max_steps", 3)))
 
     selected_skus: List[str] = []

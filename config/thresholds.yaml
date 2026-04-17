@@ -16,7 +16,7 @@ cache:
 
 ollama:
   base_url: "http://localhost:11434"
-  model: "gemma4:31b-cloud"
+  model: "gemma3:4b"
   api_key: "45042b1013744319ae290e935097087a.WvqBNkLeVmJyEPvWk8LoM-Z6"
   temperature: 0.1
   timeout_ms: 40000

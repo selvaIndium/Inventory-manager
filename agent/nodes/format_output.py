@@ -38,6 +38,30 @@ def _overall_health(summary: Dict[str, int]) -> str:
     return "good"
 
 
+def _compact_tool_history(history: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """Return compact tool history without bulky nested config payloads."""
+    compact: List[Dict[str, object]] = []
+    for item in history[-20:]:
+        arguments = item.get("arguments", {})
+        if isinstance(arguments, dict):
+            sanitized_args = dict(arguments)
+            if "config" in sanitized_args:
+                sanitized_args["config"] = "<omitted>"
+        else:
+            sanitized_args = arguments
+
+        compact.append(
+            {
+                "step": item.get("step"),
+                "thought": item.get("thought"),
+                "tool_name": item.get("tool_name"),
+                "arguments": sanitized_args,
+                "status": item.get("status"),
+            }
+        )
+    return compact
+
+
 def format_output_node(state: AgentState) -> AgentState:
     """Build PRD schema-aligned output with template placeholders for Phase 1."""
     state["current_node"] = "format_output"
@@ -141,9 +165,19 @@ def format_output_node(state: AgentState) -> AgentState:
             "config_version": "1.0.0",
             "execution_time_ms": 0,
             "partial_data": state["partial_data"],
+            "mode": state["config"].get("mode", "thinking"),
+            "graph_used": state["config"].get("mode", "thinking") != "fast",
+            "planner_used": state["config"].get("agent_mode", "deterministic") in {"hybrid", "full"}
+            and state["config"].get("mode", "thinking") != "fast",
+            "llm_strategy": (
+                "template_only"
+                if state["config"].get("mode", "thinking") == "fast"
+                and state["config"].get("fast_template_only", False)
+                else ("llm_constrained" if state["config"].get("mode", "thinking") == "fast" else "llm_full")
+            ),
             "agent_mode": state["config"].get("agent_mode", "deterministic"),
             "agent_steps_executed": state.get("agent_step_count", 0),
-            "agent_tool_history": state.get("agent_tool_history", []),
+            "agent_tool_history": _compact_tool_history(state.get("agent_tool_history", [])),
             "agent_fallback_reason": state.get("agent_fallback_reason", ""),
             "errors": state["errors"],
             "warnings": state["warnings"],

@@ -140,6 +140,12 @@ def stream_explain_llm_batches(state: AgentState) -> Iterator[Dict[str, Any]]:
         state["warnings"].append("No LLM prompts available; template fallback will be used.")
         return
 
+    mode = str(state["config"].get("mode", "thinking")).lower()
+    fast_template_only = bool(state["config"].get("fast_template_only", False))
+    if mode == "fast" and fast_template_only:
+        state["warnings"].append("Fast mode template-only enabled; skipping LLM explanation step.")
+        return
+
     ollama_cfg = state["config"].get("ollama", {})
     base_url = str(ollama_cfg.get("base_url", "http://localhost:11434"))
     model = str(ollama_cfg.get("model", "llama3.2:1b"))

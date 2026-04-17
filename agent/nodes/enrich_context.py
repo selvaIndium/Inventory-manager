@@ -10,6 +10,22 @@ def enrich_context_node(state: AgentState) -> AgentState:
     """Attach contextual graph metadata to each SKU metric."""
     state["current_node"] = "enrich_context"
 
+    mode = str(state["config"].get("mode", "thinking")).lower()
+    if mode == "fast":
+        state["sku_contexts"] = [
+            SKUContext(
+                sku_id=metric.sku_id,
+                seasonal_factor=1.0,
+                category_avg_dos=30.0,
+                risk_tags=[],
+                context_source="default",
+            )
+            for metric in state["sku_metrics"]
+        ]
+        state["graph_source"] = "default"
+        state["warnings"].append("Graph enrichment skipped in fast mode.")
+        return state
+
     contexts: list[SKUContext] = []
     source_counts: dict[str, int] = {}
     category_by_sku = {record.sku_id: record.category for record in state["sku_records"]}
