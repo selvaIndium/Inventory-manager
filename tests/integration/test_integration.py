@@ -41,3 +41,27 @@ def test_malformed_input_partial_data(tmp_path: Path) -> None:
     )
     payload = run_analysis(_base_config(str(bad)))
     assert payload["summary"]["total_skus_analyzed"] == 1
+
+
+def test_full_agent_mode_skips_deterministic_backbone_on_planner_failure() -> None:
+    cfg = _base_config("data/inventory_mock.csv")
+    cfg["mode"] = "thinking"
+    cfg["agent_mode"] = "full"
+    cfg.setdefault("ollama", {})["base_url"] = "http://127.0.0.1:65534"
+    cfg.setdefault("ollama", {})["planner_timeout_ms"] = 200
+
+    payload = run_analysis(cfg)
+    metadata = payload.get("metadata", {})
+
+    flow_events = metadata.get("flow_events", [])
+    nodes = [str(item.get("node", "")) for item in flow_events]
+    assert "planner_action" in nodes
+    assert "load_data" not in nodes
+    assert "calculate_metrics" not in nodes
+
+    fallback_reason = str(metadata.get("agent_fallback_reason", ""))
+    assert fallback_reason.startswith("planner_unavailable")
+
+    tool_logs = metadata.get("tool_call_logs", [])
+    deterministic_calls = [item for item in tool_logs if item.get("caller") == "deterministic_system"]
+    assert not deterministic_calls

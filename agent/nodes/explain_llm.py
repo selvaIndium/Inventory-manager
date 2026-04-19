@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterator, List
 
 import httpx
 
+from agent.logging_utils import add_flow_event, add_llm_batch_event
 from agent.state import AgentState
 
 
@@ -65,7 +66,6 @@ def _call_batch(
     timeout_seconds: float | None,
     headers: Dict[str, str],
     temperature: float,
-    num_predict: int,
     system_prompt: str,
     batch_ids: List[str],
     compact_inputs: List[Dict[str, Any]],
@@ -108,8 +108,9 @@ def _call_batch(
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
         ],
         "stream": False,
+        "think": False,
         "format": response_schema,
-        "options": {"temperature": temperature, "num_predict": num_predict},
+        "options": {"temperature": temperature},
     }
 
     with httpx.Client(timeout=timeout_seconds, headers=headers) as client:
@@ -134,16 +135,26 @@ def _call_batch(
 
 def stream_explain_llm_batches(state: AgentState) -> Iterator[Dict[str, Any]]:
     """Process fixed-size batches and yield progress events after each batch."""
+    node = "explain_llm"
+    add_flow_event(state, node=node, event="start")
     state["current_node"] = "explain_llm"
 
     if not state["llm_prompts"]:
-        state["warnings"].append("No LLM prompts available; template fallback will be used.")
+        reason = str(state.get("agent_fallback_reason", ""))
+        if reason.startswith("planner_unavailable"):
+            state["warnings"].append(
+                "No LLM prompts available because planner stopped before building metrics/prompts; template fallback will be used."
+            )
+        else:
+            state["warnings"].append("No LLM prompts available; template fallback will be used.")
+        add_flow_event(state, node=node, event="end", detail="no_prompts")
         return
 
     mode = str(state["config"].get("mode", "thinking")).lower()
     fast_template_only = bool(state["config"].get("fast_template_only", False))
     if mode == "fast" and fast_template_only:
         state["warnings"].append("Fast mode template-only enabled; skipping LLM explanation step.")
+        add_flow_event(state, node=node, event="end", detail="fast_template_only")
         return
 
     ollama_cfg = state["config"].get("ollama", {})
@@ -152,7 +163,6 @@ def stream_explain_llm_batches(state: AgentState) -> Iterator[Dict[str, Any]]:
     timeout_ms = int(ollama_cfg.get("timeout_ms", 4000))
     timeout_seconds: float | None = None if timeout_ms <= 0 else (float(timeout_ms) / 1000)
     temperature = float(ollama_cfg.get("temperature", 0.1))
-    num_predict = int(ollama_cfg.get("num_predict", 1800))
     api_key = str(ollama_cfg.get("api_key", "")).strip()
     headers: Dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
@@ -178,7 +188,6 @@ def stream_explain_llm_batches(state: AgentState) -> Iterator[Dict[str, Any]]:
                 timeout_seconds=timeout_seconds,
                 headers=headers,
                 temperature=temperature,
-                num_predict=num_predict,
                 system_prompt=system_prompt,
                 batch_ids=batch_ids,
                 compact_inputs=compact_inputs,
@@ -221,7 +230,7 @@ def stream_explain_llm_batches(state: AgentState) -> Iterator[Dict[str, Any]]:
             )
 
         processed_skus += len(batch_ids)
-        yield {
+        event = {
             "batch_index": batch_index,
             "batch_total": len(batches),
             "batch_size": len(batch_ids),
@@ -233,10 +242,18 @@ def stream_explain_llm_batches(state: AgentState) -> Iterator[Dict[str, Any]]:
             "batch_success": batch_success,
             "detail": batch_detail,
         }
+        add_llm_batch_event(state, event)
+        yield event
 
     state["llm_retries"]["__batch__"] = failed_batches
     if not state["llm_responses"]:
         state["warnings"].append("LLM batch call failed or timed out; using template fallback. Detail: no usable responses")
+    add_flow_event(
+        state,
+        node=node,
+        event="end",
+        extra={"batches": len(batches), "failed_batches": failed_batches, "llm_responses": len(state["llm_responses"])},
+    )
 
 
 def explain_llm_node(state: AgentState) -> AgentState:

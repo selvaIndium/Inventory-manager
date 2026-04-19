@@ -14,6 +14,62 @@ from tools.load_data import load_inventory_data
 from tools.query_graph import query_graph as query_graph_impl
 
 
+STATUS_TO_RULE = {
+    "overstock": "R-OVERSTOCK",
+    "healthy": "R-HEALTHY",
+    "watch": "R-WATCH",
+    "critical": "R-CRITICAL",
+}
+
+
+def _calc_metrics_batch(records: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+    """Calculate metrics for a batch of records."""
+    metrics = [calculate_metrics_for_sku(record, config) for record in records]
+    return {"metrics": metrics, "count": len(metrics)}
+
+
+def _query_graph_batch(records: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+    """Query graph context for all records in one call."""
+    contexts: list[dict[str, Any]] = []
+    for record in records:
+        sku_id = str(record.get("sku_id", "")).strip()
+        category = str(record.get("category", "unknown")).strip()
+        if not sku_id:
+            continue
+        contexts.append(
+            query_graph_impl(
+                sku_id=sku_id,
+                category=category,
+                query_type="all",
+                config=config,
+            )
+        )
+    return {"contexts": contexts, "count": len(contexts)}
+
+
+def _apply_rules_batch(metrics: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+    """Apply status-based rules to all metrics in one call."""
+    config_path = str(config.get("config_path", "config/thresholds.yaml"))
+    rules_payload = fetch_rules_impl(config_path=config_path, category=None)
+    rules = rules_payload.get("rules", [])
+    rule_ids = {
+        str(rule.get("rule_id", "")): rule for rule in rules if isinstance(rule, dict)
+    }
+
+    mapped: dict[str, list[str]] = {}
+    for metric in metrics:
+        sku_id = str(metric.get("sku_id", "")).strip()
+        status = str(metric.get("status", "")).strip()
+        match = STATUS_TO_RULE.get(status)
+        mapped[sku_id] = [match] if match and match in rule_ids else []
+
+    return {
+        "rule_results": mapped,
+        "rules": rules,
+        "count": len(mapped),
+    }
+
+
 def create_mcp_server() -> FastMCP:
     """Create and register FastMCP tools for local execution."""
     mcp = FastMCP("inventory-agent")
@@ -28,10 +84,20 @@ def create_mcp_server() -> FastMCP:
         """Load and validate JSON inventory data."""
         return load_inventory_data(file_path)
 
+    @mcp.tool(name="load_inventory")
+    def load_inventory(file_path: str) -> Dict[str, Any]:
+        """Load and validate CSV/JSON inventory data."""
+        return load_inventory_data(file_path)
+
     @mcp.tool(name="calc_metrics")
     def calc_metrics(sku: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
         """Calculate metrics for one SKU payload."""
         return calculate_metrics_for_sku(sku, config)
+
+    @mcp.tool(name="calc_metrics_batch")
+    def calc_metrics_batch(records: list[dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate metrics for a record batch."""
+        return _calc_metrics_batch(records=records, config=config)
 
     @mcp.tool(name="fetch_rules")
     def fetch_rules(config_path: str, category: str | None = None) -> Dict[str, Any]:
@@ -52,6 +118,16 @@ def create_mcp_server() -> FastMCP:
             query_type=query_type,
             config=config or {},
         )
+
+    @mcp.tool(name="query_graph_batch")
+    def query_graph_batch(records: list[dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
+        """Query graph context for all records in one call."""
+        return _query_graph_batch(records=records, config=config)
+
+    @mcp.tool(name="apply_rules_batch")
+    def apply_rules_batch(metrics: list[dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
+        """Map rules for all metrics in one call."""
+        return _apply_rules_batch(metrics=metrics, config=config)
 
     return mcp
 

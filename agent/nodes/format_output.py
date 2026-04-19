@@ -1,4 +1,4 @@
-"""LangGraph node to assemble final Phase 1 output payload."""
+"""LangGraph node to assemble final output payload."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 from typing import Dict, List
 
+from agent.logging_utils import add_flow_event
 from agent.state import AgentState, SKURecommendation
 
 DISCLAIMER = (
@@ -19,7 +20,6 @@ DISCLAIMER = (
 
 
 def _recommended_action(status: str) -> str:
-    """Return a deterministic action string by status."""
     if status == "critical":
         return "Consider immediate reorder review to reduce stockout risk."
     if status == "watch":
@@ -30,7 +30,6 @@ def _recommended_action(status: str) -> str:
 
 
 def _overall_health(summary: Dict[str, int]) -> str:
-    """Derive overall health category from status counts."""
     if summary["critical_count"] >= max(1, summary["total_skus_analyzed"] // 4):
         return "poor"
     if summary["critical_count"] > 0 or summary["watch_count"] > summary["healthy_count"]:
@@ -39,7 +38,6 @@ def _overall_health(summary: Dict[str, int]) -> str:
 
 
 def _compact_tool_history(history: List[Dict[str, object]]) -> List[Dict[str, object]]:
-    """Return compact tool history without bulky nested config payloads."""
     compact: List[Dict[str, object]] = []
     for item in history[-20:]:
         arguments = item.get("arguments", {})
@@ -63,7 +61,7 @@ def _compact_tool_history(history: List[Dict[str, object]]) -> List[Dict[str, ob
 
 
 def format_output_node(state: AgentState) -> AgentState:
-    """Build PRD schema-aligned output with template placeholders for Phase 1."""
+    add_flow_event(state, node="format_output", event="start")
     state["current_node"] = "format_output"
 
     metrics_by_sku = {metric.sku_id: metric for metric in state["sku_metrics"]}
@@ -154,35 +152,68 @@ def format_output_node(state: AgentState) -> AgentState:
         ][:5],
     }
 
+    tool_logs = state.get("tool_call_logs", [])
+    deterministic_tool_calls = sum(
+        1 for item in tool_logs if isinstance(item, dict) and item.get("caller") == "deterministic_system"
+    )
+    planner_tool_calls = sum(
+        1 for item in tool_logs if isinstance(item, dict) and item.get("caller") == "planner_model"
+    )
+    full_mode_contract_ok = True
+    if str(state["config"].get("mode", "")).lower() == "thinking" and str(state["config"].get("agent_mode", "")).lower() == "full":
+        full_mode_contract_ok = deterministic_tool_calls == 0
+        if not full_mode_contract_ok:
+            state["warnings"].append("full_mode_contract_violation: deterministic tool calls detected")
+
+    metadata = {
+        "llm_model": state["config"].get("ollama", {}).get("model", "llama3.2:1b"),
+        "graph_source": state["graph_source"],
+        "config_version": "1.0.0",
+        "execution_time_ms": 0,
+        "partial_data": state["partial_data"],
+        "mode": state["config"].get("mode", "thinking"),
+        "graph_used": state["config"].get("mode", "thinking") != "fast",
+        
+        "planner_used": state["config"].get("agent_mode", "deterministic") in {"hybrid", "full"}
+                            and state["config"].get("mode", "thinking") != "fast",
+        "llm_strategy": (
+
+            "template_only"
+                if state["config"].get("mode", "thinking") == "fast"
+                and state["config"].get("fast_template_only", False)
+
+            else (
+                "llm_constrained" if state["config"].get("mode", "thinking") == "fast" else "llm_full"
+            )
+        ),
+        "agent_mode": state["config"].get("agent_mode", "deterministic"),
+        "agent_steps_executed": state.get("agent_step_count", 0),
+        "agent_tool_history": _compact_tool_history(state.get("agent_tool_history", [])),
+        "flow_events": state.get("flow_events", []),
+        "tool_call_logs": state.get("tool_call_logs", []),
+        "llm_batch_events": state.get("llm_batch_events", []),
+        "agent_fallback_reason": state.get("agent_fallback_reason", ""),
+        "full_mode_contract_ok": full_mode_contract_ok,
+        "deterministic_tool_calls": deterministic_tool_calls,
+        "planner_tool_calls": planner_tool_calls,
+        "errors": state["errors"],
+        "warnings": state["warnings"],
+    }
+
     state["final_output"] = {
         "run_id": state["run_id"],
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": summary_payload,
         "recommendations": recommendation_dicts,
-        "metadata": {
-            "llm_model": state["config"].get("ollama", {}).get("model", "llama3.2:1b"),
-            "graph_source": state["graph_source"],
-            "config_version": "1.0.0",
-            "execution_time_ms": 0,
-            "partial_data": state["partial_data"],
-            "mode": state["config"].get("mode", "thinking"),
-            "graph_used": state["config"].get("mode", "thinking") != "fast",
-            "planner_used": state["config"].get("agent_mode", "deterministic") in {"hybrid", "full"}
-            and state["config"].get("mode", "thinking") != "fast",
-            "llm_strategy": (
-                "template_only"
-                if state["config"].get("mode", "thinking") == "fast"
-                and state["config"].get("fast_template_only", False)
-                else ("llm_constrained" if state["config"].get("mode", "thinking") == "fast" else "llm_full")
-            ),
-            "agent_mode": state["config"].get("agent_mode", "deterministic"),
-            "agent_steps_executed": state.get("agent_step_count", 0),
-            "agent_tool_history": _compact_tool_history(state.get("agent_tool_history", [])),
-            "agent_fallback_reason": state.get("agent_fallback_reason", ""),
-            "errors": state["errors"],
-            "warnings": state["warnings"],
-        },
+        "metadata": metadata,
         "disclaimer": DISCLAIMER,
     }
+
+    add_flow_event(
+        state,
+        node="format_output",
+        event="end",
+        extra={"recommendations": len(recommendation_dicts), "warnings": len(state["warnings"])},
+    )
 
     return state

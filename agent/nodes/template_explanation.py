@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from agent.logging_utils import add_flow_event
 from agent.nodes.format_output import DISCLAIMER
 from agent.state import AgentState
 
@@ -12,7 +13,10 @@ MANDATORY_ENDING = "This recommendation is advisory only and should be reviewed 
 
 def template_explanation_node(state: AgentState) -> AgentState:
     """Fill missing explanations using deterministic templates by SKU status."""
+    add_flow_event(state, node="template_explanation", event="start")
     state["current_node"] = "template_explanation"
+
+    filled_count = 0
 
     for metric in state["sku_metrics"]:
         if metric.sku_id in state["llm_responses"]:
@@ -60,10 +64,17 @@ def template_explanation_node(state: AgentState) -> AgentState:
             },
             ensure_ascii=False,
         )
+        filled_count += 1
 
     if "llm_fallback_used" not in state["warnings"]:
         if any("LLM" in warning for warning in state["warnings"]):
             state["warnings"].append("llm_fallback_used")
 
     _ = DISCLAIMER
+    add_flow_event(
+        state,
+        node="template_explanation",
+        event="end",
+        extra={"template_filled": filled_count, "llm_responses_total": len(state.get("llm_responses", {}))},
+    )
     return state

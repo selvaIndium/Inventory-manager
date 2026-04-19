@@ -25,3 +25,15 @@ def test_llm_timeout_falls_back_template() -> None:
     cfg.setdefault("ollama", {})["timeout_ms"] = 10
     payload = run_analysis(cfg)
     assert all(rec["plain_english_explanation"] for rec in payload["recommendations"])
+
+
+def test_planner_parse_failure_reports_reason() -> None:
+    cfg = _config()
+    cfg["mode"] = "thinking"
+    cfg["agent_mode"] = "full"
+    cfg.setdefault("ollama", {})["base_url"] = "http://127.0.0.1:65534"
+    cfg.setdefault("ollama", {})["planner_timeout_ms"] = 200
+
+    payload = run_analysis(cfg)
+    reason = str(payload.get("metadata", {}).get("agent_fallback_reason", ""))
+    assert reason.startswith("planner_unavailable")

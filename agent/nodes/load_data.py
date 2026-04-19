@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent.logging_utils import add_flow_event, add_tool_call_log, timer_ms, timer_start
 from agent.state import AgentState, SKURecord
 from tools.server import call_mcp_tool_sync
 
 
 def load_data_node(state: AgentState) -> AgentState:
     """Load CSV/JSON data using MCP and build validated SKURecord objects."""
-    
+    node = "load_data"
+    add_flow_event(state, node=node, event="start")
     state["current_node"] = "load_data"
 
     #gets the data_path, if it doesnt exist then uses the mockcsv.
@@ -19,11 +21,34 @@ def load_data_node(state: AgentState) -> AgentState:
     
     tool_name = "load_json" if data_path.suffix.lower() == ".json" else "load_csv"
 
+    args = {"file_path": str(data_path)}
+    started = timer_start()
     try:
-        result = call_mcp_tool_sync(tool_name, {"file_path": str(data_path)})
+        result = call_mcp_tool_sync(tool_name, args)
+        add_tool_call_log(
+            state,
+            node=node,
+            tool_name=tool_name,
+            caller="deterministic_system",
+            arguments=args,
+            status="ok",
+            duration_ms=timer_ms(started),
+            output_count=len(result.get("records", [])),
+        )
     except Exception as exc:
+        add_tool_call_log(
+            state,
+            node=node,
+            tool_name=tool_name,
+            caller="deterministic_system",
+            arguments=args,
+            status="error",
+            duration_ms=timer_ms(started),
+            error=str(exc),
+        )
         state["errors"].append({"node": "load_data", "sku_id": "", "message": str(exc)})
         state["partial_data"] = True
+        add_flow_event(state, node=node, event="end", detail="error")
         return state
 
     records = result.get("records", [])
@@ -62,5 +87,12 @@ def load_data_node(state: AgentState) -> AgentState:
         )
         for row in records
     ]
+
+    add_flow_event(
+        state,
+        node=node,
+        event="end",
+        extra={"records": len(state["sku_records"]), "warnings": len(state["warnings"])},
+    )
 
     return state

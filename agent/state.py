@@ -82,11 +82,15 @@ class AgentState(TypedDict):
     llm_prompts: Dict[str, str]
     llm_responses: Dict[str, str]
     llm_retries: Dict[str, int]
+    flow_events: List[Dict[str, Any]]
+    tool_call_logs: List[Dict[str, Any]]
+    llm_batch_events: List[Dict[str, Any]]
 
     agent_step_count: int
     agent_max_steps: int
     agent_scratchpad: List[str]
     agent_tool_history: List[Dict[str, Any]]
+    agent_seen_action_fingerprints: List[str]
     agent_done: bool
     agent_pending_action: Optional[Dict[str, Any]]
     agent_fallback_reason: str

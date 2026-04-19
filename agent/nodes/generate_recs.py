@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 
+from agent.logging_utils import add_flow_event
 from agent.state import AgentState
 
 
 def generate_recs_node(state: AgentState) -> AgentState:
     """Prepare per-SKU payloads for single-shot batched LLM explanation generation."""
+    add_flow_event(state, node="generate_recs", event="start")
     state["current_node"] = "generate_recs"
 
     contexts = {context.sku_id: context for context in state["sku_contexts"]}
@@ -37,5 +39,12 @@ def generate_recs_node(state: AgentState) -> AgentState:
             "rule_results": state["rule_results"].get(metric.sku_id, []),
         }
         state["llm_prompts"][metric.sku_id] = json.dumps(payload, ensure_ascii=False)
+
+    add_flow_event(
+        state,
+        node="generate_recs",
+        event="end",
+        extra={"llm_prompt_count": len(state["llm_prompts"])},
+    )
 
     return state

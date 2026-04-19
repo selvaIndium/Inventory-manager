@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from agent.logging_utils import add_flow_event, add_tool_call_log, timer_ms, timer_start
 from agent.state import AgentState, SKUMetrics
 from tools.server import call_mcp_tool_sync
 
 
 def calculate_metrics_node(state: AgentState) -> AgentState:
     """Calculate inventory metrics for all validated SKU records."""
+    node = "calculate_metrics"
+    add_flow_event(state, node=node, event="start")
     state["current_node"] = "calculate_metrics"
     metrics: list[SKUMetrics] = []
     scenario_overrides = state["config"].get("scenario_overrides", {})
@@ -37,9 +40,20 @@ def calculate_metrics_node(state: AgentState) -> AgentState:
                 sku_payload["safety_stock"] = float(
                     scenario_overrides.get("safety_stock", scenario_overrides.get("default_safety_stock", record.safety_stock))
                 )
+            started = timer_start()
             payload = call_mcp_tool_sync(
                 "calc_metrics",
                 {"sku": sku_payload, "config": state["config"]},
+            )
+            add_tool_call_log(
+                state,
+                node=node,
+                tool_name="calc_metrics",
+                caller="deterministic_system",
+                arguments={"sku": sku_payload, "config": state["config"]},
+                status="ok",
+                duration_ms=timer_ms(started),
+                output_count=1,
             )
             metrics.append(
                 SKUMetrics(
@@ -53,9 +67,20 @@ def calculate_metrics_node(state: AgentState) -> AgentState:
                 )
             )
         except Exception as exc:
+            add_tool_call_log(
+                state,
+                node=node,
+                tool_name="calc_metrics",
+                caller="deterministic_system",
+                arguments={"sku": sku_payload, "config": state["config"]},
+                status="error",
+                duration_ms=timer_ms(started),
+                error=str(exc),
+            )
             state["errors"].append(
                 {"node": "calculate_metrics", "sku_id": record.sku_id, "message": str(exc)}
             )
 
     state["sku_metrics"] = metrics
+    add_flow_event(state, node=node, event="end", extra={"metrics": len(metrics)})
     return state

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from jsonschema import ValidationError, validate
 
+from agent.logging_utils import add_flow_event
 from agent.state import AgentState
 
 OUTPUT_SCHEMA = {
@@ -56,6 +57,7 @@ OUTPUT_SCHEMA = {
 
 def validate_output_node(state: AgentState) -> AgentState:
     """Validate final JSON output against Phase 1 schema expectations."""
+    add_flow_event(state, node="validate_output", event="start")
     state["current_node"] = "validate_output"
 
     payload = state.get("final_output")
@@ -64,6 +66,7 @@ def validate_output_node(state: AgentState) -> AgentState:
             {"node": "validate_output", "sku_id": "", "message": "Missing final_output payload."}
         )
         state["output_valid"] = False
+        add_flow_event(state, node="validate_output", event="end", detail="missing_final_output")
         return state
 
     try:
@@ -84,5 +87,12 @@ def validate_output_node(state: AgentState) -> AgentState:
             {"node": "validate_output", "sku_id": "", "message": f"Schema validation failed: {exc.message}"}
         )
         state["output_valid"] = False
+
+    add_flow_event(
+        state,
+        node="validate_output",
+        event="end",
+        extra={"output_valid": state["output_valid"], "error_count": len(state["errors"])},
+    )
 
     return state
