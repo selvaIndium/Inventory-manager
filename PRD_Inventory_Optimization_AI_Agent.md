@@ -8,12 +8,12 @@
 | Field | Value |
 |---|---|
 | **Document Title** | Inventory Optimization AI Agent — PRD |
-| **Version** | 1.1.0 |
-| **Status** | Draft — Updated for Hybrid Agentic Mode |
+| **Version** | 1.2.0 |
+| **Status** | Active Draft — Updated to current implemented architecture |
 | **Author(s)** | Senior PM / AI Systems Architect |
 | **Assessment Reference** | RA8 |
 | **Created** | 2025-07-01 |
-| **Last Updated** | 2026-04-16 |
+| **Last Updated** | 2026-04-21 |
 | **Target Release** | MVP (Local / Offline) |
 | **Review Cycle** | Per sprint, major version on architecture change |
 
@@ -24,7 +24,8 @@
 | 0.1 | 2025-06-15 | Architect | Initial outline |
 | 0.9 | 2025-06-28 | PM | Added LangGraph + MCP architecture |
 | 1.0 | 2025-07-01 | PM / Architect | Final PRD — production-ready draft |
-| 1.1 | 2026-04-16 | PM / Architect | Added phased hybrid-agentic implementation plan and removed Neo4j from MVP architecture |
+| 1.1 | 2026-04-16 | PM / Architect | Added phased hybrid-agentic plan; removed Neo4j from MVP |
+| 1.2 | 2026-04-21 | PM / Architect | Synced PRD to implemented system: mode router flow, runtime NetworkX graph from uploaded data, in-memory cache only, full/hybrid planner loop behavior, action guardrails, raw CoT (experimental), expanded diagnostics metadata |
 
 ---
 
@@ -32,26 +33,26 @@
 
 ### 2.1 Problem Statement
 
-Inventory teams at small-to-mid-sized retail and supply chain operations continue to rely on manual, spreadsheet-driven processes to make reorder decisions. This reactive approach creates two persistent, expensive failure modes:
+Inventory teams still depend on manual spreadsheet reviews for reorder decisions. This causes:
 
-- **Stockouts**: High-velocity SKUs run dry before a reorder is placed, leading to lost sales, customer dissatisfaction, and emergency procurement costs.
-- **Overstocking**: Slow-moving or seasonal SKUs accumulate excess inventory that ties up capital, consumes warehouse space, and risks write-offs due to spoilage or obsolescence.
+- **Stockouts** from delayed reorder action on high-velocity SKUs.
+- **Overstocking** from weak visibility on low-velocity and seasonal demand patterns.
 
-The root cause is not a lack of data — it is a lack of timely, explainable, context-aware decision support that a non-technical planner can trust and act on.
+The problem is not data availability; it is lack of explainable, trustworthy, context-aware decision support for non-technical planners.
 
 ### 2.2 Product Vision
 
-> **"Give every inventory planner an always-available AI analyst that reads their stock data, spots risks before they become crises, and explains exactly what to do and why — in plain business language."**
+> Give planners a local, always-available AI analyst that reads inventory data, surfaces risk early, and explains what to do in plain language.
 
-The Inventory Optimization AI Agent is a **locally-executable, offline-first decision-support tool** that:
+The system is a **decision-support co-pilot**:
 
-1. Ingests mock inventory data (CSV/JSON, 20–50 synthetic SKUs).
-2. Calculates key inventory health metrics using configurable rule thresholds.
-3. Reasons over those metrics using a stateful AI agent (LangGraph + local LLM via Ollama).
-4. Enriches decisions with seasonal/category context from a NetworkX-first local knowledge graph.
-5. Produces structured, explainable recommendations with a mandatory human-review disclaimer.
+1. Ingests inventory CSV/JSON.
+2. Computes inventory health metrics.
+3. Enriches thinking-mode decisions using a runtime NetworkX graph built from uploaded data.
+4. Generates recommendations via deterministic and/or agentic execution.
+5. Provides explainable output with mandatory advisory disclaimer.
 
-The agent is a **co-pilot, not an autopilot**. It never places orders or modifies systems. Every recommendation is framed as advisory input for a human decision-maker.
+It never auto-places orders and never modifies external systems.
 
 ---
 
@@ -62,30 +63,23 @@ The agent is a **co-pilot, not an autopilot**. It never places orders or modifie
 | Attribute | Detail |
 |---|---|
 | **Role** | Inventory / Replenishment Planner |
-| **Tech Comfort** | Low-to-medium; comfortable with Excel, basic dashboards |
-| **Pain Points** | Spends 3–4 hours/week manually reviewing stock levels; misses reorder windows; no visibility into seasonal patterns |
-| **Goal** | Get a prioritized, plain-English list of what to reorder, when, and how much — without building formulas |
-| **Success Metric** | Reduces stockout incidents by ≥30%; reclaims 2+ hours/week |
+| **Tech Comfort** | Low-to-medium |
+| **Pain Points** | Manual review load, missed reorder windows, weak context visibility |
+| **Goal** | Prioritized, plain-English guidance by SKU |
 
-### Persona 2 — Raj, Retail Operations Manager (Secondary)
+### Persona 2 — Raj, Operations Manager (Secondary)
 
 | Attribute | Detail |
 |---|---|
-| **Role** | Ops Manager overseeing 3–5 planners |
-| **Tech Comfort** | Medium |
-| **Pain Points** | No consolidated view of inventory risk across SKUs; reactive firefighting |
-| **Goal** | Weekly health summary with risk-flagged SKUs and recommended actions per category |
-| **Success Metric** | Reduction in emergency reorders; improved cash flow from reduced overstocking |
+| **Role** | Retail / Supply Operations Manager |
+| **Goal** | Consistent weekly risk visibility and auditability |
 
 ### Persona 3 — Priya, AI/IT Learner (Tertiary)
 
 | Attribute | Detail |
 |---|---|
-| **Role** | Junior ML Engineer or CS student studying agentic AI systems |
-| **Tech Comfort** | High |
-| **Pain Points** | Limited access to real-world agentic AI codebases with MCP + LangGraph integration |
-| **Goal** | Understand how LangGraph, MCP tools, LLMs, and knowledge graphs compose into a production-pattern system |
-| **Success Metric** | Can extend a new MCP tool or LangGraph node within 30 minutes of reading the codebase |
+| **Role** | ML Engineer / Student |
+| **Goal** | Learn production-pattern LangGraph + MCP + local LLM architecture |
 
 ---
 
@@ -95,1298 +89,332 @@ The agent is a **co-pilot, not an autopilot**. It never places orders or modifie
 
 | ID | Feature |
 |---|---|
-| S-01 | Ingest mock inventory data from CSV or JSON (20–50 synthetic SKUs) |
-| S-02 | Calculate Days of Stock, reorder quantity, and reorder timing per SKU |
-| S-03 | Apply configurable status thresholds (🟢 Healthy / 🟡 Watch / 🔴 Critical / ⚠️ Overstock) |
-| S-04 | LangGraph orchestration with stateful, cyclic agent workflow |
-| S-05 | MCP tool layer (FastMCP) wrapping data loading, metric calculation, rule fetching, graph queries |
-| S-06 | NetworkX in-memory knowledge graph (primary and only KG backend for MVP) |
-| S-07 | Latency guard via diskcache/SQLite for frequent lookups |
-| S-08 | Local Ollama LLM (qwen2.5:7b or llama3.1:8b) for explanation generation |
-| S-09 | Structured JSON output with plain-English narrative per SKU |
-| S-10 | CLI-first execution; optional Streamlit UI |
-| S-11 | Graceful handling of missing/malformed data fields |
-| S-12 | Mandatory disclaimer on all outputs (advisory only, human review required) |
-| S-13 | Basic demand trend detection (e.g., 7-day rolling average vs. 30-day baseline) |
-| S-14 | Offline-first execution — no internet dependency for core logic |
+| S-01 | CSV/JSON ingestion with row validation |
+| S-02 | Metric calculation: days_of_stock, reorder_qty, urgency |
+| S-03 | Status assignment: healthy/watch/critical/overstock |
+| S-04 | LangGraph orchestration with mode routing |
+| S-05 | MCP tool layer via FastMCP |
+| S-06 | Runtime NetworkX graph built from uploaded records (thinking mode) |
+| S-07 | In-memory cache for graph artifact reuse |
+| S-08 | Local Ollama LLM explanations |
+| S-09 | Deterministic and agentic execution modes |
+| S-10 | Streamlit UI + CLI entrypoint |
+| S-11 | Action correctness guardrails over LLM output |
+| S-12 | Raw CoT capture (experimental, optional) |
+| S-13 | Structured diagnostics: flow/tool/llm events |
+| S-14 | Advisory-only disclaimer on all outputs |
 
 ### 4.2 Out of Scope (MVP)
 
-| ID | Exclusion | Reason |
-|---|---|---|
-| OS-01 | Real-time POS integration | Requires live data feeds; beyond RA8 boundaries |
-| OS-02 | ML/statistical forecasting models | Adds complexity; mock data insufficient for training |
-| OS-03 | ERP/WMS integration (SAP, Oracle, etc.) | Out of scope per RA8; compliance risk |
-| OS-04 | Supplier contract management | Domain outside RA8; requires external APIs |
-| OS-05 | Real commercial inventory data | Privacy/compliance risk; mock data only |
-| OS-06 | Automated order placement | Violates advisory-only mandate; human-in-the-loop required |
-| OS-07 | Multi-tenant SaaS deployment | Architectural scope beyond MVP |
-| OS-08 | Mobile application | UI scope limited to CLI + optional Streamlit |
+- ERP/WMS integration.
+- Real-time POS ingestion.
+- Automated order placement.
+- SaaS multi-tenant deployment.
+- Forecasting ML training pipelines.
 
 ---
 
 ## 5. System Architecture & Data Flow
 
-### 5.1 Architecture Overview
+### 5.1 Implemented Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        USER INTERFACE LAYER                             │
-│                                                                         │
-│   ┌──────────────┐              ┌──────────────────────────────────┐   │
-│   │   CLI Runner  │              │   Streamlit UI (Optional)        │   │
-│   │  (main.py)   │              │   (app.py)                       │   │
-│   └──────┬───────┘              └───────────────┬──────────────────┘   │
-└──────────┼───────────────────────────────────────┼───────────────────────┘
-           │                                       │
-           ▼                                       ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     ORCHESTRATION LAYER (LangGraph)                     │
-│                                                                         │
-│   ┌─────────────────────────────────────────────────────────────────┐  │
-│   │                    LangGraph State Machine                       │  │
-│   │                                                                  │  │
-│   │  [load_data] → [calculate_metrics] → [apply_rules]              │  │
-│   │       ↑               ↓                    ↓                    │  │
-│   │  [retry/fix]   [enrich_context]    [generate_recs]              │  │
-│   │                       ↓                    ↓                    │  │
-│   │               [query_knowledge]    [explain_llm]                │  │
-│   │                       ↓                    ↓                    │  │
-│   │               [cache_lookup]       [format_output]              │  │
-│   │                                         ↓                      │  │
-│   │                                  [validate_output]             │  │
-│   └─────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               │
-           ┌───────────────────┼──────────────────────┐
-           ▼                   ▼                      ▼
-┌──────────────────┐ ┌─────────────────┐  ┌──────────────────────────────┐
-│   MCP TOOL LAYER │ │   LLM LAYER     │  │   KNOWLEDGE LAYER            │
-│   (FastMCP)      │ │   (Ollama)      │  │                              │
-│                  │ │                 │  │  ┌────────────────────────┐  │
-│  ┌────────────┐  │ │  qwen2.5:7b or  │  │  │  NetworkX (In-Memory)  │  │
-│  │load_csv    │  │ │  llama3.1:8b    │  │  │  Primary Offline KG    │  │
-│  │load_json   │  │ │  (quantized)    │  │  │  (Seasonal / Category) │  │
-│  │calc_metrics│  │ │                 │  │  └────────────┬───────────┘  │
-│  │fetch_rules │  │ │  localhost:11434│  │               │              │
-│  │query_graph │  │ │                 │  │               ▼              │
-│  │cache_get   │  │ └─────────────────┘  │  ┌────────────────────────┐  │
-│  │cache_set   │  │                      │  │  diskcache / SQLite    │  │
-│  └────────────┘  │                      │  │  Latency Guard Cache   │  │
-└──────────────────┘                      │  └────────────────────────┘  │
-                                          │               │              │
-                                          └──────────────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          DATA LAYER                                     │
-│                                                                         │
-│   ┌──────────────────┐         ┌──────────────────────────────────┐   │
-│   │  Mock CSV / JSON  │         │  Threshold Config (YAML/JSON)    │   │
-│   │  (20–50 SKUs)    │         │  (configurable per environment)   │   │
-│   └──────────────────┘         └──────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────┘
+UI Layer
+  - Streamlit: ui/tabs.py, ui/preflight.py, ui/runner.py
+  - CLI: main.py
+
+Orchestration Layer
+  - LangGraph: agent/graph.py
+  - State contract: agent/state.py
+  - Node logic: agent/nodes/*
+
+Tool Layer (MCP)
+  - tools/server.py
+  - tools/load_data.py, tools/calc_metrics.py, tools/query_graph.py, tools/fetch_rules.py
+
+Knowledge Layer
+  - knowledge/networkx_graph.py
+  - knowledge/cache_layer.py (in-memory only)
+
+Model Layer
+  - Ollama local endpoint (localhost)
+
+Output Layer
+  - Structured JSON + Streamlit views + CSV/trace exports
 ```
 
-### 5.2 Data Flow (End-to-End)
+### 5.2 Current End-to-End Flow (Canonical)
+
+#### Mode Router
 
 ```
-1. User invokes CLI or Streamlit UI
-       │
-       ▼
-2. LangGraph initializes AgentState with run_id, config, empty results
-       │
-       ▼
-3. [load_data] node calls MCP tool load_csv / load_json
-   → Returns validated list of SKURecord objects
-   → On error: retry once, then set partial_data flag
-       │
-       ▼
-4. [calculate_metrics] node calls MCP tool calc_metrics per SKU
-   → Computes: days_of_stock, reorder_qty, reorder_date, velocity
-       │
-       ▼
-5. [enrich_context] node calls MCP tool query_graph
-   → Checks diskcache first (< 50ms target)
-  → On cache miss: queries NetworkX in-memory graph
-  → On query failure: returns defaults (seasonal_factor=1.0, risk_tags=[])
-   → Result: seasonal_factor, category_norms, risk_tags
-       │
-       ▼
-6. [apply_rules] node calls MCP tool fetch_rules
-   → Applies threshold logic → assigns status (🟢🟡🔴⚠️)
-   → Produces rule_match list per SKU
-       │
-       ▼
-7. [generate_recs] node assembles per-SKU recommendation payload
-       │
-       ▼
-8. [explain_llm] node sends structured prompt to Ollama
-   → System prompt enforces: neutral tone, advisory language, disclaimer
-   → Returns: plain_english_explanation per SKU
-   → Timeout: 4s max; fallback to template string if exceeded
-       │
-       ▼
-9. [format_output] node assembles final JSON response
-       │
-       ▼
-10. [validate_output] node checks schema compliance
-    → On validation fail: re-prompt once (loop back to step 8)
-    → On second fail: emit structured error with partial results
-       │
-       ▼
-11. Output rendered to CLI stdout (JSON + human-readable summary)
-    or Streamlit dashboard cards
+START -> mode_router
+if mode=thinking and agent_mode=full: planner_action
+else: load_data
 ```
+
+#### Deterministic Backbone
+
+```
+load_data -> calculate_metrics ->
+  if mode=fast: apply_rules
+  else: enrich_context -> apply_rules
+-> generate_recs -> explain_llm -> template_explanation -> format_output -> validate_output -> END
+```
+
+#### Agentic Loop (Hybrid / Full)
+
+```
+generate_recs -> planner_action
+planner_action:
+  if done=true:
+    if mode=thinking and agent_mode=full: generate_recs
+    else: explain_llm
+  else: execute_action -> planner_action (loop)
+
+... -> explain_llm -> template_explanation -> format_output -> validate_output -> END
+```
+
+### 5.3 Mode Behavior Summary
+
+- **fast**: deterministic only, no graph enrichment.
+- **thinking + deterministic**: deterministic flow plus graph enrichment.
+- **thinking + hybrid**: deterministic backbone plus planner loop where applicable.
+- **thinking + full**: planner-first route with strict full-mode contract checks.
 
 ---
 
 ## 6. LangGraph State Machine & Node Definitions
 
-### 6.1 AgentState Schema (TypedDict)
+### 6.1 State Contract (Implemented)
 
-```python
-from typing import TypedDict, List, Optional, Dict, Any, Literal
-from dataclasses import dataclass, field
-from datetime import datetime
+`agent/state.py` defines runtime state including:
 
+- data pipeline: `raw_records`, `sku_records`, `sku_metrics`, `sku_contexts`
+- tool/rule outputs: `rule_results`, `recommendations`
+- llm fields: `llm_prompts`, `llm_responses`, `llm_reasoning`, `llm_reasoning_by_sku`, `llm_retries`
+- observability: `flow_events`, `tool_call_logs`, `llm_batch_events`
+- agent loop control: `agent_step_count`, `agent_max_steps`, `agent_tool_history`, `agent_done`, `agent_pending_action`, `agent_fallback_reason`
+- run diagnostics: `errors`, `warnings`, `partial_data`, `graph_source`, `graph_runtime_stats`, `output_valid`
 
-# ── Sub-types ────────────────────────────────────────────────────────────────
+### 6.2 Node Inventory
 
-@dataclass
-class SKURecord:
-    sku_id: str
-    name: str
-    category: str
-    current_stock: float
-    avg_daily_sales: float
-    lead_time_days: int
-    safety_stock: float
-    reorder_point: Optional[float] = None
-    last_sale_date: Optional[str] = None
-    supplier_id: Optional[str] = None
+- Routing/core: `mode_router`, `load_data`, `calculate_metrics`, `enrich_context`, `apply_rules`, `generate_recs`
+- Agentic: `planner_action`, `execute_action`
+- Explanation/output: `explain_llm`, `template_explanation`, `format_output`, `validate_output`
 
+### 6.3 Reliability Logic Highlights
 
-@dataclass
-class SKUMetrics:
-    sku_id: str
-    days_of_stock: float                  # current_stock / avg_daily_sales
-    reorder_qty: float                    # (avg_daily_sales × lead_time) + safety_stock - current_stock
-    reorder_urgency_days: float           # days until stock hits reorder point
-    velocity_trend: Literal["rising", "stable", "falling", "unknown"]
-    status: Literal["healthy", "watch", "critical", "overstock"]
-    status_emoji: str                     # 🟢 🟡 🔴 ⚠️
-
-
-@dataclass
-class SKUContext:
-    sku_id: str
-    seasonal_factor: float                # multiplier from KG (1.0 = neutral)
-    category_avg_dos: float               # avg days-of-stock for category
-    risk_tags: List[str]                  # e.g. ["peak_season", "long_lead_time"]
-    context_source: Literal["networkx", "cache", "default"]
-
-
-@dataclass
-class SKURecommendation:
-    sku_id: str
-    name: str
-    status: str
-    status_emoji: str
-    days_of_stock: float
-    reorder_qty: float
-    reorder_urgency_days: float
-    recommended_action: str               # e.g. "Place reorder within 3 days"
-    plain_english_explanation: str
-    risk_tags: List[str]
-    confidence: Literal["high", "medium", "low"]
-    data_quality_flag: Optional[str]      # e.g. "missing_lead_time_used_default"
-
-
-# ── Primary State Schema ─────────────────────────────────────────────────────
-
-class AgentState(TypedDict):
-    # Run metadata
-    run_id: str
-    started_at: str                               # ISO 8601
-    config: Dict[str, Any]                        # thresholds, paths, flags
-
-    # Data pipeline
-    raw_records: List[Dict[str, Any]]             # unparsed rows from CSV/JSON
-    sku_records: List[SKURecord]                  # validated SKU objects
-    sku_metrics: List[SKUMetrics]                 # calculated metrics
-    sku_contexts: List[SKUContext]                # KG-enriched context
-
-    # Rule & recommendation state
-    rule_results: Dict[str, List[str]]            # sku_id → matched rule IDs
-    recommendations: List[SKURecommendation]      # final recs
-
-    # LLM interaction
-    llm_prompts: Dict[str, str]                   # sku_id → prompt sent
-    llm_responses: Dict[str, str]                 # sku_id → raw LLM response
-    llm_retries: Dict[str, int]                   # sku_id → retry count
-
-    # Control flow
-    current_node: str
-    errors: List[Dict[str, str]]                  # {node, sku_id, message}
-    warnings: List[str]
-    partial_data: bool                            # True if some SKUs had missing fields
-    graph_source: str                             # "networkx" | "cache" | "default"
-    output_valid: bool
-
-    # Final output
-    final_output: Optional[Dict[str, Any]]        # serialized JSON response
-```
-
-### 6.2 Node Definitions
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  NODE GRAPH (LangGraph)                                                     │
-│                                                                             │
-│   START                                                                     │
-│     │                                                                       │
-│     ▼                                                                       │
-│  ┌─────────────┐    error     ┌───────────────┐                            │
-│  │  load_data  │ ──────────▶  │ handle_error  │ ──▶ END (partial/fail)     │
-│  └──────┬──────┘              └───────────────┘                            │
-│         │ success                                                           │
-│         ▼                                                                   │
-│  ┌──────────────────┐                                                       │
-│  │ calculate_metrics│                                                       │
-│  └────────┬─────────┘                                                       │
-│           │                                                                 │
-│           ▼                                                                 │
-│  ┌──────────────────┐                                                       │
-│  │  enrich_context  │ ◀──────────────────────────────────┐                 │
-│  └────────┬─────────┘                                    │                 │
-│           │                                    cache miss + KG fail        │
-│           ▼                                              │                 │
-│  ┌──────────────────┐                         ┌──────────────────┐        │
-│  │   apply_rules    │                         │  fallback_graph  │        │
-│  └────────┬─────────┘                         └──────────────────┘        │
-│           │                                                                 │
-│           ▼                                                                 │
-│  ┌──────────────────┐                                                       │
-│  │  generate_recs   │                                                       │
-│  └────────┬─────────┘                                                       │
-│           │                                                                 │
-│           ▼                                                                 │
-│  ┌──────────────────┐   timeout / fail   ┌──────────────────────┐         │
-│  │   explain_llm    │ ─────────────────▶ │ template_explanation │         │
-│  └────────┬─────────┘                    └──────────┬───────────┘         │
-│           │                                         │                      │
-│           └─────────────────┬───────────────────────┘                      │
-│                             ▼                                               │
-│                   ┌──────────────────┐                                      │
-│                   │  format_output   │                                      │
-│                   └────────┬─────────┘                                      │
-│                            │                                                │
-│                            ▼                                                │
-│                   ┌──────────────────┐  invalid (retry ≤1)                 │
-│                   │ validate_output  │ ────────────────────▶ [explain_llm] │
-│                   └────────┬─────────┘                                      │
-│                            │ valid                                           │
-│                            ▼                                                │
-│                          END ✓                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 6.3 Node Specifications
-
-| Node | Responsibility | MCP Tools Called | Max Duration | On Failure |
-|---|---|---|---|---|
-| `load_data` | Parse CSV/JSON, validate schema, build SKURecord list | `load_csv`, `load_json` | 500ms | Retry once; set `partial_data=True` for bad rows |
-| `calculate_metrics` | Compute days_of_stock, reorder_qty, urgency, velocity | `calc_metrics` | 300ms | Use defaults; log warning |
-| `enrich_context` | Fetch seasonal/category context from NetworkX KG or cache | `query_graph`, `cache_get` | 300ms | Return default context |
-| `apply_rules` | Match thresholds → assign status, rule_results | `fetch_rules` | 200ms | Use default rule set |
-| `generate_recs` | Assemble per-SKU recommendation payload | None (internal) | 100ms | Emit error record |
-| `explain_llm` | Generate plain-English explanation via Ollama | None (direct HTTP) | 4000ms | Route to `template_explanation` |
-| `template_explanation` | Return rule-based fallback explanation string | None (internal) | 50ms | Log warning; continue |
-| `format_output` | Serialize final JSON output with metadata | `cache_set` | 200ms | Emit partial JSON |
-| `validate_output` | Assert JSON schema compliance | None (internal) | 100ms | Re-prompt once; else emit structured error |
-| `handle_error` | Log errors, emit failure response | None | 100ms | Always succeeds |
+- Planner schema validation and stage-aware tool checks.
+- Duplicate planner action suppression.
+- Explicit stop reason tracking in `agent_fallback_reason`.
+- Full-mode contract validation (`full_mode_contract_ok`) in output metadata.
 
 ---
 
 ## 7. MCP Tool Layer & Contracts
 
-### 7.1 Overview
+### 7.1 Tool Surface
 
-All external capabilities are exposed as **FastMCP tools**. LangGraph nodes call these tools via the MCP client — they never directly import data loaders, DB clients, or formula modules. This enforces clean separation and testability.
+From `tools/server.py`:
 
-```python
-# Example tool registration (server.py)
-from fastmcp import FastMCP
+- `load_inventory`
+- `calc_metrics_batch`
+- `query_graph_batch`
+- `apply_rules_batch`
+- plus core helper tools (`fetch_rules`, etc.)
 
-mcp = FastMCP("inventory-agent")
+### 7.2 Runtime Contract Notes
 
-@mcp.tool()
-def load_csv(file_path: str) -> dict: ...
+- Tools are consumed by both deterministic nodes and planner executor paths.
+- `execute_action` maps planner-selected tool observations back into shared state.
+- Batch tools reduce loop overhead for planner-driven runs.
 
-@mcp.tool()
-def calc_metrics(sku: dict, config: dict) -> dict: ...
-```
+### 7.3 Query Graph Contract (Current)
 
-### 7.2 Tool Contracts
-
----
-
-#### Tool: `load_csv`
-
-**Purpose**: Load and validate inventory data from a CSV file.
-
-```json
-{
-  "tool": "load_csv",
-  "input": {
-    "file_path": "string (absolute or relative path to .csv file)"
-  },
-  "output": {
-    "records": "[array of raw row dicts]",
-    "row_count": "integer",
-    "invalid_rows": "[array of {row_index, reason}]",
-    "warnings": "[array of strings]"
-  },
-  "timeout_ms": 500,
-  "fallback": "Return empty records list with error message; set partial_data=true",
-  "errors": ["FileNotFoundError", "CSVParseError", "SchemaValidationError"]
-}
-```
-
----
-
-#### Tool: `load_json`
-
-**Purpose**: Load and validate inventory data from a JSON file.
-
-```json
-{
-  "tool": "load_json",
-  "input": {
-    "file_path": "string"
-  },
-  "output": {
-    "records": "[array of raw row dicts]",
-    "row_count": "integer",
-    "invalid_rows": "[array of {row_index, reason}]",
-    "warnings": "[array of strings]"
-  },
-  "timeout_ms": 500,
-  "fallback": "Same as load_csv fallback",
-  "errors": ["FileNotFoundError", "JSONDecodeError", "SchemaValidationError"]
-}
-```
-
----
-
-#### Tool: `calc_metrics`
-
-**Purpose**: Compute all inventory health metrics for a single SKU.
-
-```json
-{
-  "tool": "calc_metrics",
-  "input": {
-    "sku": {
-      "sku_id": "string",
-      "current_stock": "float",
-      "avg_daily_sales": "float",
-      "lead_time_days": "integer",
-      "safety_stock": "float"
-    },
-    "config": {
-      "healthy_dos_min": "float (default: 14)",
-      "watch_dos_min": "float (default: 7)",
-      "critical_dos_max": "float (default: 7)",
-      "overstock_dos_min": "float (default: 60)"
-    }
-  },
-  "output": {
-    "sku_id": "string",
-    "days_of_stock": "float",
-    "reorder_qty": "float",
-    "reorder_urgency_days": "float",
-    "velocity_trend": "rising | stable | falling | unknown",
-    "status": "healthy | watch | critical | overstock",
-    "status_emoji": "🟢 | 🟡 | 🔴 | ⚠️",
-    "formula_used": "string (human-readable formula trace)"
-  },
-  "timeout_ms": 100,
-  "fallback": "Use default config values for missing fields; flag in data_quality_flag",
-  "formula_note": "reorder_qty = (avg_daily_sales × lead_time_days) + safety_stock - current_stock"
-}
-```
-
-**Core Formulas**:
-```
-days_of_stock       = current_stock ÷ avg_daily_sales
-reorder_qty         = (avg_daily_sales × lead_time_days) + safety_stock − current_stock
-reorder_urgency     = days_of_stock − lead_time_days
-```
-
-**Status Threshold Logic**:
-```
-IF days_of_stock > overstock_dos_min          → ⚠️  overstock
-ELIF days_of_stock >= healthy_dos_min         → 🟢  healthy
-ELIF days_of_stock >= watch_dos_min           → 🟡  watch
-ELSE                                          → 🔴  critical
-```
-
----
-
-#### Tool: `fetch_rules`
-
-**Purpose**: Return the active rule set for threshold evaluation.
-
-```json
-{
-  "tool": "fetch_rules",
-  "input": {
-    "config_path": "string (path to thresholds YAML/JSON)",
-    "category": "string (optional — for category-specific overrides)"
-  },
-  "output": {
-    "rules": [
-      {
-        "rule_id": "string",
-        "condition": "string (human-readable)",
-        "action": "string",
-        "priority": "integer"
-      }
-    ],
-    "source": "file | default"
-  },
-  "timeout_ms": 200,
-  "fallback": "Return hardcoded default rule set"
-}
-```
-
----
-
-#### Tool: `query_graph`
-
-**Purpose**: Query the knowledge graph for seasonal/category context.
-
-```json
-{
-  "tool": "query_graph",
-  "input": {
-    "sku_id": "string",
-    "category": "string",
-    "query_type": "seasonal_factor | category_norms | risk_tags | all"
-  },
-  "output": {
-    "sku_id": "string",
-    "seasonal_factor": "float (1.0 = neutral)",
-    "category_avg_dos": "float",
-    "risk_tags": "[array of strings]",
-    "source": "networkx | cache | default"
-  },
-  "timeout_ms": 800,
-  "fallback": "If NetworkX query fails: return defaults (seasonal_factor=1.0, risk_tags=[])",
-  "cache_key_pattern": "graph:{sku_id}:{query_type}:{date_yyyymmdd}"
-}
-```
-
----
-
-#### Tool: `cache_get`
-
-**Purpose**: Retrieve a cached value from diskcache/SQLite.
-
-```json
-{
-  "tool": "cache_get",
-  "input": {
-    "key": "string"
-  },
-  "output": {
-    "hit": "boolean",
-    "value": "any | null",
-    "ttl_remaining_seconds": "integer | null"
-  },
-  "timeout_ms": 50,
-  "fallback": "Return hit=false; proceed to live query"
-}
-```
-
----
-
-#### Tool: `cache_set`
-
-**Purpose**: Store a value in the diskcache/SQLite cache.
-
-```json
-{
-  "tool": "cache_set",
-  "input": {
-    "key": "string",
-    "value": "any",
-    "ttl_seconds": "integer (default: 3600)"
-  },
-  "output": {
-    "success": "boolean"
-  },
-  "timeout_ms": 50,
-  "fallback": "Log warning; continue without caching"
-}
-```
+- `tools/query_graph.py` requires `config.runtime_records`.
+- Graph artifact key = dataset fingerprint + graph schema version.
+- Cache = in-memory artifact reuse only.
+- Thinking mode expects runtime graph context; no default graph-context fallback in graph query path.
 
 ---
 
 ## 8. Knowledge Graph Strategy
 
-### 8.1 NetworkX Primary Strategy (In-Memory)
+### 8.1 Runtime NetworkX (Current)
 
-**Decision**:
-- Neo4j implementation is removed from MVP scope.
-- NetworkX is the single knowledge graph implementation for reliability and local-first simplicity.
-- `query_graph` returns `source` values only from `networkx`, `cache`, or `default`.
+The system builds a runtime directed graph from uploaded records (`knowledge/networkx_graph.py`):
 
-**Initialization** (at agent startup):
+- node types: SKU, category, optional supplier
+- edges: SKU->category, optional SKU->supplier
+- derived context: category DOS baselines, risk tags, relative factor signals
 
-```python
-import networkx as nx
-import json
+### 8.2 Caching Strategy
 
-def build_fallback_graph(seed_path: str = "data/kg_seed.json") -> nx.DiGraph:
-    """
-    Loads a pre-seeded JSON file describing categories, seasons, and rules.
-    Returns a directed NetworkX graph usable as offline KG substitute.
-    """
-    G = nx.DiGraph()
-    with open(seed_path) as f:
-        seed = json.load(f)
+- cache implementation: `knowledge/cache_layer.py`
+- type: in-memory TTL store
+- purpose: performance optimization only
+- non-goal: fallback decision logic
 
-    for category in seed["categories"]:
-        G.add_node(category["id"], **category, node_type="category")
+### 8.3 Thinking-Mode Policy
 
-    for season in seed["seasons"]:
-        G.add_node(season["id"], **season, node_type="season")
-
-    for sku in seed["skus"]:
-        G.add_node(sku["sku_id"], **sku, node_type="sku")
-        G.add_edge(sku["sku_id"], sku["category_id"], rel="BELONGS_TO")
-        for s_id in sku.get("affected_seasons", []):
-            G.add_edge(sku["sku_id"], s_id, rel="AFFECTED_BY",
-                       weight=sku.get("season_weight", 1.0))
-    return G
-```
-
-**Query Interface**:
-
-```python
-def query_networkx(G: nx.DiGraph, sku_id: str, current_month: int) -> dict:
-    neighbors = list(G.successors(sku_id))
-    seasonal_factor = 1.0
-    risk_tags = []
-    category_avg_dos = 30.0  # global default
-
-    for n in neighbors:
-        node = G.nodes[n]
-        if node.get("node_type") == "season":
-            if node["start_month"] <= current_month <= node["end_month"]:
-                seasonal_factor = node.get("demand_multiplier", 1.0)
-                risk_tags.append("seasonal_peak")
-        if node.get("node_type") == "category":
-            category_avg_dos = node.get("avg_dos_target", 30.0)
-
-    return {
-        "seasonal_factor": seasonal_factor,
-        "category_avg_dos": category_avg_dos,
-        "risk_tags": risk_tags,
-        "source": "networkx"
-    }
-```
-
-### 8.3 Caching Rules (diskcache / SQLite)
-
-| Cache Key Pattern | TTL | Invalidation |
-|---|---|---|
-| `graph:{sku_id}:seasonal_factor:{YYYYMM}` | 24 hours | Month rollover |
-| `graph:{category_id}:norms` | 6 hours | Config change |
-| `rules:{category_id}` | 1 hour | Config file mtime change |
-| `metrics:{sku_id}:{date}` | 30 minutes | New data load |
-
-**Latency Guarantees**:
-
-```
-cache_get:        < 50ms   (target: < 10ms)
-networkx_query:   < 200ms
-llm_call:         < 4000ms (hard timeout; template fallback at 4000ms)
-total_e2e:        < 5000ms (RA8 SLA)
-```
+- thinking runs depend on runtime graph availability.
+- graph build/query failures are explicit errors, not silent default-context substitution.
 
 ---
 
 ## 9. Functional Requirements
 
-> All requirements are mapped directly to RA8 specification goals.
+### FR-01 Data and Metrics
 
-### FR-01 — Data Ingestion
+- System loads CSV/JSON, validates rows, and computes inventory metrics.
+- Invalid rows are skipped with warnings.
 
-| ID | Requirement | Priority |
-|---|---|---|
-| FR-01.1 | System SHALL load inventory data from CSV or JSON files | P0 |
-| FR-01.2 | System SHALL support 20–50 synthetic SKU records per run | P0 |
-| FR-01.3 | System SHALL validate required fields: sku_id, current_stock, avg_daily_sales, lead_time_days, safety_stock | P0 |
-| FR-01.4 | System SHALL handle missing optional fields gracefully using defaults, with a data_quality_flag in output | P0 |
-| FR-01.5 | System SHALL report invalid rows without halting the full analysis run | P1 |
+### FR-02 Mode-Aware Orchestration
 
-### FR-02 — Metric Calculation
+- System supports `fast` and `thinking` modes.
+- In `fast`, graph enrichment is skipped.
+- In `thinking`, graph enrichment is enabled.
 
-| ID | Requirement | Priority |
-|---|---|---|
-| FR-02.1 | System SHALL calculate `days_of_stock = current_stock ÷ avg_daily_sales` for each SKU | P0 |
-| FR-02.2 | System SHALL calculate `reorder_qty = (avg_daily_sales × lead_time_days) + safety_stock − current_stock` | P0 |
-| FR-02.3 | System SHALL calculate `reorder_urgency_days = days_of_stock − lead_time_days` | P0 |
-| FR-02.4 | System SHALL detect velocity trend (rising / stable / falling) using 7-day rolling vs. 30-day baseline where data available | P1 |
+### FR-03 Agent Modes
 
-### FR-03 — Status Classification
+- System supports `deterministic`, `hybrid`, and `full` agent modes in thinking mode.
+- In fast mode, effective execution remains deterministic.
 
-| ID | Requirement | Priority |
-|---|---|---|
-| FR-03.1 | System SHALL assign one of four statuses per SKU: 🟢 Healthy, 🟡 Watch, 🔴 Critical, ⚠️ Overstock | P0 |
-| FR-03.2 | System SHALL apply configurable thresholds loaded from a YAML/JSON config file | P0 |
-| FR-03.3 | System SHALL support category-level threshold overrides | P1 |
+### FR-04 Recommendation Quality Guardrails
 
-### FR-04 — Context Enrichment
+- System post-validates LLM action recommendations against status/metrics policy.
+- Contradictory actions are corrected and logged (`llm_action_corrected:<sku>`).
 
-| ID | Requirement | Priority |
-|---|---|---|
-| FR-04.1 | System SHALL query the knowledge graph for seasonal demand factors per SKU | P1 |
-| FR-04.2 | System SHALL use NetworkX in-memory graph as the default and only KG backend in MVP | P1 |
-| FR-04.3 | System SHALL use diskcache for repeated KG queries within the same session | P1 |
+### FR-05 Explainability
 
-### FR-05 — Recommendation Generation
+- System returns `plain_english_explanation` per SKU.
+- System returns `reasoning_summary` per SKU.
+- Optional raw CoT is available in experimental mode and never used for final action policy.
 
-| ID | Requirement | Priority |
-|---|---|---|
-| FR-05.1 | System SHALL generate a recommended_action string per SKU | P0 |
-| FR-05.2 | System SHALL generate a plain_english_explanation per SKU using the local LLM | P0 |
-| FR-05.3 | System SHALL fall back to a rule-based template explanation if LLM times out | P0 |
-| FR-05.4 | System SHALL include proactive actions for 🟡 and 🔴 SKUs | P0 |
-| FR-05.5 | System SHALL include context-aware notes when seasonal_factor > 1.1 | P1 |
+### FR-06 Observability
 
-### FR-06 — Output & Explainability
-
-| ID | Requirement | Priority |
-|---|---|---|
-| FR-06.1 | System SHALL produce output as a valid JSON document conforming to the Output Schema (Section 11) | P0 |
-| FR-06.2 | System SHALL include a mandatory advisory disclaimer on all outputs | P0 |
-| FR-06.3 | System SHALL include a human-readable summary in CLI stdout | P0 |
-| FR-06.4 | System SHALL report the source of KG context (networkx / cache / default) | P1 |
-| FR-06.5 | System SHALL include formula_used trace in per-SKU output | P1 |
-
-### FR-07 — UI
-
-| ID | Requirement | Priority |
-|---|---|---|
-| FR-07.1 | System SHALL execute fully via CLI as primary interface | P0 |
-| FR-07.2 | System SHOULD provide an optional Streamlit dashboard UI | P2 |
-| FR-07.3 | Streamlit UI SHALL display SKU cards with status emoji, metrics, and recommendation | P2 |
+- System emits flow/tool/llm event logs in metadata.
+- Streamlit displays live trace and diagnostics views.
 
 ---
 
 ## 10. Non-Functional Requirements
 
-### NFR-01 — Performance & Latency
+### NFR-01 Offline and Local-First
 
-| ID | Requirement | Budget |
-|---|---|---|
-| NFR-01.1 | End-to-end response time for 50 SKUs | ≤ 5,000ms |
-| NFR-01.2 | Data load + metric calculation | ≤ 800ms |
-| NFR-01.3 | KG context enrichment (cache hit) | ≤ 50ms |
-| NFR-01.4 | KG context enrichment (NetworkX) | ≤ 200ms |
-| NFR-01.6 | LLM explanation generation (all SKUs, batched) | ≤ 4,000ms |
-| NFR-01.7 | Output formatting + validation | ≤ 200ms |
+- Core pipeline runs locally.
+- LLM calls are local to configured Ollama endpoint.
 
-### NFR-02 — Offline Guarantee
+### NFR-02 Reliability
 
-| ID | Requirement |
-|---|---|
-| NFR-02.1 | System SHALL operate fully without internet connectivity |
-| NFR-02.2 | LLM model SHALL be pre-pulled locally via `ollama pull` before first run |
-| NFR-02.3 | NetworkX graph SHALL be pre-loaded from `data/kg_seed.json` at startup |
-| NFR-02.4 | System SHALL NOT make any external HTTP calls except to `localhost:11434` (Ollama) |
+- Deterministic fallback path remains available when LLM/planner behavior degrades.
+- Runs produce structured errors/warnings instead of crashing UI pathways.
 
-### NFR-03 — Resource Limits
+### NFR-03 Transparency
 
-| Resource | Limit |
-|---|---|
-| RAM (agent process) | ≤ 1 GB |
-| RAM (Ollama model) | ≤ 6 GB (quantized 7B/8B) |
-| Disk (cache) | ≤ 500 MB |
-| CPU (peak, single run) | ≤ 4 cores |
-| SKU batch size (MVP) | 20–50 SKUs |
+- Recommendations include rationale fields.
+- Metadata includes graph runtime stats, event traces, and stop reasons.
 
-### NFR-04 — Reliability & Fallback
+### NFR-04 Performance
 
-| ID | Requirement |
-|---|---|
-| NFR-04.1 | System SHALL complete a run (with partial output) even if NetworkX query and Ollama both fail |
-| NFR-04.2 | Each LangGraph node SHALL have explicit error handling with logged error records |
-| NFR-04.3 | LLM timeout SHALL trigger template_explanation — never a blank explanation field |
-| NFR-04.4 | System SHALL not crash on malformed CSV rows; invalid rows are skipped with warnings |
-
-### NFR-05 — Maintainability
-
-| ID | Requirement |
-|---|---|
-| NFR-05.1 | All thresholds SHALL be externalized to a YAML/JSON config file — no magic numbers in code |
-| NFR-05.2 | Each MCP tool SHALL be independently unit-testable |
-| NFR-05.3 | LangGraph nodes SHALL be pure functions accepting and returning AgentState |
-| NFR-05.4 | Code complexity per module SHALL not exceed 200 lines (excluding tests) |
+- Latency targets are mode/model dependent and not defined as a single hard timeout for all paths.
+- Cache reuse should reduce repeated graph-build cost for same dataset fingerprint.
 
 ---
 
 ## 11. Output Schema & Prompt Guidelines
 
-### 11.1 Final JSON Output Schema
+### 11.1 Output Structure (Current)
 
-```json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "InventoryAgentOutput",
-  "type": "object",
-  "required": ["run_id", "generated_at", "summary", "recommendations", "metadata", "disclaimer"],
-  "properties": {
-    "run_id": { "type": "string", "description": "UUID for this analysis run" },
-    "generated_at": { "type": "string", "format": "date-time" },
-    "summary": {
-      "type": "object",
-      "properties": {
-        "total_skus_analyzed": { "type": "integer" },
-        "critical_count": { "type": "integer" },
-        "watch_count": { "type": "integer" },
-        "healthy_count": { "type": "integer" },
-        "overstock_count": { "type": "integer" },
-        "skus_skipped": { "type": "integer" },
-        "overall_health": { "type": "string", "enum": ["good", "fair", "poor"] },
-        "top_priority_skus": {
-          "type": "array",
-          "items": { "type": "string" },
-          "maxItems": 5
-        }
-      }
-    },
-    "recommendations": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["sku_id", "name", "status", "status_emoji", "days_of_stock",
-                     "reorder_qty", "reorder_urgency_days", "recommended_action",
-                     "plain_english_explanation", "risk_tags", "confidence"],
-        "properties": {
-          "sku_id": { "type": "string" },
-          "name": { "type": "string" },
-          "category": { "type": "string" },
-          "status": { "type": "string", "enum": ["healthy", "watch", "critical", "overstock"] },
-          "status_emoji": { "type": "string", "enum": ["🟢", "🟡", "🔴", "⚠️"] },
-          "days_of_stock": { "type": "number" },
-          "reorder_qty": { "type": "number" },
-          "reorder_urgency_days": { "type": "number" },
-          "recommended_action": { "type": "string" },
-          "plain_english_explanation": { "type": "string", "minLength": 30 },
-          "risk_tags": { "type": "array", "items": { "type": "string" } },
-          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
-          "seasonal_factor": { "type": "number" },
-          "formula_used": { "type": "string" },
-          "data_quality_flag": { "type": ["string", "null"] },
-          "context_source": { "type": "string", "enum": ["networkx", "cache", "default"] },
-          "velocity_trend": { "type": "string", "enum": ["rising", "stable", "falling", "unknown"] }
-        }
-      }
-    },
-    "metadata": {
-      "type": "object",
-      "properties": {
-        "llm_model": { "type": "string" },
-        "graph_source": { "type": "string" },
-        "config_version": { "type": "string" },
-        "execution_time_ms": { "type": "integer" },
-        "partial_data": { "type": "boolean" },
-        "errors": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "node": { "type": "string" },
-              "sku_id": { "type": ["string", "null"] },
-              "message": { "type": "string" }
-            }
-          }
-        },
-        "warnings": { "type": "array", "items": { "type": "string" } }
-      }
-    },
-    "disclaimer": {
-      "type": "string",
-      "const": "⚠️ ADVISORY ONLY: This analysis is generated by an AI decision-support tool using synthetic mock data. All recommendations require human review and validation before any action is taken. This tool does not place orders, modify systems, or reflect real commercial inventory. Always consult your supply chain team before acting on these suggestions."
-    }
-  }
-}
-```
+Top-level output:
 
-### 11.2 Example Output Record
+- `run_id`, `generated_at`, `summary`, `recommendations`, `metadata`, `disclaimer`
 
-```json
-{
-  "sku_id": "SKU-042",
-  "name": "USB-C Charging Cable 2m",
-  "category": "electronics",
-  "status": "critical",
-  "status_emoji": "🔴",
-  "days_of_stock": 4.2,
-  "reorder_qty": 320,
-  "reorder_urgency_days": -2.8,
-  "recommended_action": "Place reorder immediately. Stock will be exhausted before lead time completes.",
-  "plain_english_explanation": "USB-C Charging Cable 2m is critically low with only 4.2 days of stock remaining, but your supplier needs 7 days to deliver. This means you are already 2.8 days behind the safe reorder window. Based on your average daily sales of 45 units, you should reorder approximately 320 units as soon as possible to avoid a stockout. This is a high-velocity product in the electronics category and current demand appears to be rising.",
-  "risk_tags": ["stockout_imminent", "past_reorder_point", "rising_demand"],
-  "confidence": "high",
-  "seasonal_factor": 1.15,
-  "formula_used": "reorder_qty = (45 × 7) + 50 − 165 = 200; adjusted for seasonal_factor 1.15 → 320",
-  "data_quality_flag": null,
-  "context_source": "networkx",
-  "velocity_trend": "rising"
-}
-```
+Per recommendation includes (core):
 
-### 11.3 System Prompt Template (Ollama)
+- `sku_id`, `name`, `category`, `status`, `status_emoji`
+- `days_of_stock`, `reorder_qty`, `reorder_urgency_days`
+- `recommended_action`, `plain_english_explanation`, `confidence`
+- `risk_tags`, `seasonal_factor`, `category_avg_dos`, `context_source`, `velocity_trend`
+- `reasoning_summary` (new)
+- `raw_cot` (experimental, optional)
 
-```text
-SYSTEM PROMPT — INVENTORY OPTIMIZATION AI AGENT
-================================================
+Metadata includes (core):
 
-You are an Inventory Decision Support Analyst. Your role is to help inventory
-planners understand their stock health and decide what actions to consider.
+- `mode`, `agent_mode`, `graph_source`, `graph_runtime_stats`
+- `flow_events`, `tool_call_logs`, `llm_batch_events`
+- `llm_reasoning` (experimental)
+- `agent_fallback_reason`, `full_mode_contract_ok`
+- `errors`, `warnings`
 
-TONE & LANGUAGE RULES:
-- Use plain, professional business English. Avoid jargon.
-- Always use advisory language: "consider", "may want to", "based on available data".
-- Never use commanding language: "you must", "you should immediately" (unless urgency is critical).
-- Be concise: explanations should be 2–4 sentences. No filler phrases.
-- Never claim certainty about future demand or supplier behavior.
+### 11.2 Prompt/Response Policy
 
-OUTPUT FORMAT:
-- Respond ONLY with a valid JSON object. No markdown, no backticks, no preamble.
-- Use this exact structure:
-  {
-    "plain_english_explanation": "string (2-4 sentences)",
-    "recommended_action": "string (1 sentence, action-oriented)",
-    "confidence": "high | medium | low"
-  }
-
-MANDATORY DISCLAIMER:
-- Every explanation must end with this exact phrase:
-  "This recommendation is advisory only and should be reviewed by your supply chain team."
-
-DATA PROVIDED TO YOU:
-- sku_id, name, category, days_of_stock, reorder_qty, reorder_urgency_days,
-  status, velocity_trend, seasonal_factor, risk_tags, formula_used
-
-CONSTRAINTS:
-- Do NOT invent data. If a field is null or unknown, say "data unavailable".
-- Do NOT reference real suppliers, real prices, or real order systems.
-- Do NOT place or suggest automated orders.
-- This analysis is based on synthetic mock data for decision-support purposes only.
-
-USER PROMPT TEMPLATE:
-Analyze the following SKU and generate a plain-English explanation and recommended action.
-
-SKU Data:
-{sku_json}
-
-Respond ONLY with the JSON object described above.
-```
-
-### 11.4 Phased Implementation Plan — Hybrid Agentic Mode
-
-### Phase 1 — Config and State Scaffolding
-
-- Add `agent_mode` in config: `deterministic | hybrid | full` (default: `deterministic`).
-- Extend `AgentState` with loop telemetry fields: `agent_step_count`, `agent_max_steps`, `agent_scratchpad`, `agent_tool_history`, `agent_done`.
-- Ensure deterministic mode behavior is unchanged.
-
-### Phase 2 — Agent Action Contract and Validation
-
-- Define strict JSON action schema for each planner step:
-  - `thought`
-  - `tool_name`
-  - `arguments`
-  - `done`
-- Validate `tool_name` against allowlist: `load_csv`, `load_json`, `calc_metrics`, `fetch_rules`, `query_graph`.
-- Reject invalid actions and continue with safe fallback.
-
-### Phase 3 — Planner and Executor Nodes
-
-- Add planner node that asks the LLM for exactly one tool action per turn.
-- Add executor node that calls MCP wrapper and stores observations.
-- Stop loop on `done=true` or `max_steps` reached.
-
-### Phase 4 — Graph Routing Integration
-
-- Keep deterministic linear route as default.
-- In hybrid mode, route through planner/executor loop and rejoin current formatting/validation path.
-- Prevent infinite loops with explicit step cap.
-
-### Phase 5 — CLI and Streamlit Controls
-
-- Add mode selector for CLI and Streamlit.
-- Surface diagnostics in output metadata:
-  - selected mode
-  - steps executed
-  - tool history
-  - fallback reason
-
-### Phase 6 — Validation and Regression Tests
-
-- Add deterministic regression tests to ensure unchanged baseline behavior.
-- Add hybrid-mode tests for happy path, invalid tool attempt, and timeout/fallback behavior.
-- Preserve output schema compatibility in all modes.
+- Prompting requires advisory language and action-policy consistency.
+- Action-policy enforcement is implemented as post-validation in `agent/nodes/explain_llm.py`.
+- Raw CoT capture is separate, optional, and excluded from action decision logic.
 
 ---
 
 ## 12. Ethics, Safety & Compliance
 
-### 12.1 Advisory-Only Mandate
-
-| Principle | Implementation |
-|---|---|
-| **No Automated Action** | System never calls any API that places orders or modifies inventory systems |
-| **Human-in-the-Loop** | Mandatory disclaimer on every output; Streamlit UI includes prominent warning banner |
-| **Decision Transparency** | Every recommendation includes `formula_used` trace and `context_source` |
-| **Uncertainty Acknowledgment** | LLM prompt requires advisory language; `confidence` field reflects data completeness |
-
-### 12.2 Data Privacy & Handling
-
-| Principle | Implementation |
-|---|---|
-| **Synthetic Data Only** | System is validated exclusively on mock/synthetic SKU data; no real PII or commercial data |
-| **No Data Egress** | LLM runs locally via Ollama; no data is sent to external APIs |
-| **Cache Isolation** | diskcache stored locally; no shared storage in MVP |
-| **Audit Trail** | All runs produce a `run_id`; logs include node execution trace |
-
-### 12.3 Fairness & Bias
-
-| Risk | Mitigation |
-|---|---|
-| **Category Bias in KG** | Seasonal factors in KG are seeded from neutral synthetic data; category norms are adjustable |
-| **LLM Hallucination** | LLM prompt instructs model to say "data unavailable" rather than invent; output is validated against schema |
-| **Threshold Bias** | All thresholds are externalized and configurable; no hardcoded assumptions about "normal" stock levels |
-
-### 12.4 Compliance Boundaries
-
-- This system does **not** constitute financial, procurement, or legal advice.
-- The system does **not** integrate with or replace any ERP, WMS, or purchasing system.
-- All recommendations are advisory. No output from this system creates binding obligations.
-- The system is scoped to educational and analytical use cases under RA8.
+- Advisory-only mandate remains mandatory.
+- No automatic procurement actions.
+- Human review required for all recommendations.
+- Synthetic/mock-first handling remains preferred for demos and validation.
 
 ---
 
 ## 13. Testing & Validation Plan
 
-### 13.1 Unit Tests
+### 13.1 Unit Coverage Focus
 
-| Test ID | Target | Test Case | Expected Result |
-|---|---|---|---|
-| UT-01 | `calc_metrics` tool | Valid SKU with all fields | Correct dos, reorder_qty, status |
-| UT-02 | `calc_metrics` tool | avg_daily_sales = 0 | Returns dos=∞, status=overstock, quality_flag set |
-| UT-03 | `calc_metrics` tool | Missing safety_stock | Uses default=0, quality_flag="missing_safety_stock_used_default" |
-| UT-04 | `load_csv` tool | Malformed row (non-numeric stock) | Skips row, reports invalid_rows |
-| UT-05 | `fetch_rules` tool | Missing config file | Returns hardcoded default rule set |
-| UT-06 | `cache_get` tool | Non-existent key | Returns hit=false |
-| UT-07 | Threshold logic | dos=5, watch_min=7 | Status=🔴 critical |
-| UT-08 | Threshold logic | dos=90, overstock_min=60 | Status=⚠️ overstock |
+- metric calculations and status assignment
+- runtime graph query behavior
+- tool contract behavior
 
-### 13.2 Integration Tests
+### 13.2 Integration Coverage Focus
 
-| Test ID | Scenario | Expected Result |
-|---|---|---|
-| IT-01 | Full run with 20 valid SKUs using NetworkX | All 20 recs generated in <5s, source=networkx |
-| IT-02 | Full run with NetworkX seed load issue | All recs generated with default context source, no crash |
-| IT-03 | Full run with Ollama unavailable | All recs generated with template_explanation, no crash |
-| IT-04 | Mix of valid and invalid rows (5 invalid of 25) | 20 valid recs + 5 warnings in metadata |
-| IT-05 | Repeat run within cache TTL | KG queries served from cache, context_source=cache |
+- deterministic and agentic route execution
+- full-mode planner failure handling and contract checks
+- thinking-mode graph dependency behavior
 
-### 13.3 Fallback Tests
+### 13.3 Guardrail Coverage Focus
 
-| Test ID | Fallback Triggered | Validation |
-|---|---|---|
-| FT-01 | NetworkX query exception | Default context returned; source=default |
-| FT-02 | LLM timeout (mock 5s delay) | template_explanation used; no blank explanation field |
-| FT-03 | Both NetworkX query and Ollama fail | Run completes with defaults + template; partial_data=true where applicable |
-| FT-04 | Empty input file | Graceful error; run_id returned; error logged in metadata.errors |
-
-### 13.4 Performance Tests
-
-| Test ID | Scenario | SLA | Pass Criteria |
-|---|---|---|---|
-| PT-01 | 50 SKUs, NetworkX cache cold | ≤5,000ms | p95 < 5000ms over 10 runs |
-| PT-02 | 50 SKUs, NetworkX cache warm | ≤5,000ms | p95 < 3000ms over 10 runs |
-| PT-03 | 50 SKUs, NetworkX only mode | ≤5,000ms | p95 < 4000ms over 10 runs |
-| PT-04 | Memory usage during run | ≤1 GB | Measured via `memory_profiler` |
-
-### 13.5 Ethics & Output Quality Tests
-
-| Test ID | Concern | Test Method | Pass Criteria |
-|---|---|---|---|
-| ET-01 | Disclaimer present | Assert disclaimer field == expected constant | 100% of runs |
-| ET-02 | No commanding language | Scan plain_english_explanation for banned phrases ("you must", "you will") | 0 violations |
-| ET-03 | No hallucinated data | Compare LLM output fields against input SKU data | No invented sku_ids or figures |
-| ET-04 | Schema compliance | JSON Schema validation on every output | 100% valid or retry triggered |
-| ET-05 | Advisory confidence | confidence="low" when ≥2 fields have data_quality_flag | Assert in test fixture |
+- contradictory LLM action correction by status
+- template fallback completion for missing LLM outputs
+- metadata correctness for warnings/stop reasons/trace logs
 
 ---
 
 ## 14. Local Development & Setup Guide
 
-### 14.1 Prerequisites
+### 14.1 Runtime
 
-| Dependency | Version | Purpose |
-|---|---|---|
-| Python | ≥ 3.11 | Runtime |
-| Ollama | Latest | Local LLM inference |
-| Git | Any | Source control |
+- Python virtual environment required.
+- Install dependencies from `requirements.txt`.
+- Start local Ollama endpoint and ensure model is installed.
 
-### 14.2 Project Structure
+### 14.2 Typical Commands
 
-```
-inventory-agent/
-├── main.py                     # CLI entrypoint
-├── app.py                      # Streamlit UI (optional)
-├── config/
-│   └── thresholds.yaml         # Configurable thresholds
-├── data/
-│   ├── inventory_mock.csv      # Synthetic SKU data (20–50 rows)
-│   ├── inventory_mock.json     # JSON alternative
-│   └── kg_seed.json            # NetworkX graph seed
-├── agent/
-│   ├── state.py                # AgentState TypedDict + dataclasses
-│   ├── graph.py                # LangGraph state machine definition
-│   └── nodes/
-│       ├── load_data.py
-│       ├── calculate_metrics.py
-│       ├── enrich_context.py
-│       ├── apply_rules.py
-│       ├── generate_recs.py
-│       ├── explain_llm.py
-│       ├── format_output.py
-│       └── validate_output.py
-├── tools/
-│   ├── server.py               # FastMCP server registration
-│   ├── load_csv.py
-│   ├── load_json.py
-│   ├── calc_metrics.py
-│   ├── fetch_rules.py
-│   ├── query_graph.py
-│   └── cache.py
-├── knowledge/
-│   ├── networkx_graph.py       # Primary graph builder + query
-│   └── cache_layer.py          # diskcache / SQLite wrapper
-├── prompts/
-│   └── system_prompt.txt       # LLM system prompt template
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   ├── fallback/
-│   └── performance/
-├── requirements.txt
-├── docker-compose.yml          # Reserved for optional local services
-└── README.md
-```
+- CLI run via `main.py`
+- Streamlit run via `app.py`
+- tests via `pytest`
 
-### 14.3 Installation
+### 14.3 Key Files
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/your-org/inventory-agent.git
-cd inventory-agent
-
-# 2. Create and activate virtual environment
-python -m venv .venv
-source .venv/bin/activate       # Windows: .venv\Scripts\activate
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Pull the LLM model (requires Ollama installed)
-ollama pull qwen2.5:7b
-# OR
-ollama pull llama3.1:8b
-
-# 5. Verify Ollama is running
-ollama serve &
-curl http://localhost:11434/api/tags
-```
-
-### 14.4 `requirements.txt`
-
-```text
-# Core agent
-langgraph>=0.2.0
-langchain-core>=0.3.0
-
-# MCP
-fastmcp>=0.9.0
-
-# Knowledge graph
-networkx>=3.2
-
-# LLM client
-httpx>=0.27.0
-
-# Caching
-diskcache>=5.6.3
-
-# Data handling
-pandas>=2.0.0
-pydantic>=2.0.0
-
-# UI (optional)
-streamlit>=1.35.0
-
-# Configuration
-pyyaml>=6.0.0
-
-# Testing
-pytest>=8.0.0
-pytest-asyncio>=0.23.0
-memory-profiler>=0.61.0
-jsonschema>=4.22.0
-```
-
-### 14.5 Configuration (`config/thresholds.yaml`)
-
-```yaml
-thresholds:
-  healthy_dos_min: 14        # days
-  watch_dos_min: 7           # days
-  critical_dos_max: 7        # days (exclusive)
-  overstock_dos_min: 60      # days
-
-defaults:
-  safety_stock: 0
-  lead_time_days: 7
-
-cache:
-  ttl_graph_seconds: 86400   # 24 hours
-  ttl_rules_seconds: 3600    # 1 hour
-  ttl_metrics_seconds: 1800  # 30 minutes
-  max_size_mb: 500
-
-ollama:
-  base_url: "http://localhost:11434"
-  model: "qwen2.5:7b"
-  timeout_ms: 4000
-
-output:
-  format: "json"
-  pretty_print: true
-```
-
-### 14.6 Running the Agent (CLI)
-
-```bash
-# Run with default CSV data
-python main.py --data data/inventory_mock.csv
-
-# Run with JSON data
-python main.py --data data/inventory_mock.json --format json
-
-# Run in hybrid agentic mode
-python main.py --data data/inventory_mock.csv --agent-mode hybrid
-
-# Run with custom config
-python main.py --data data/inventory_mock.csv --config config/thresholds.yaml
-
-# Output to file
-python main.py --data data/inventory_mock.csv --output results/run_001.json
-```
-
-### 14.7 Validating NetworkX KG Seed
-
-```bash
-# Validate that the local seed file is readable
-python -c "import json; json.load(open('data/kg_seed.json', encoding='utf-8')); print('kg_seed.json valid')"
-
-# Optional: quick import smoke test
-python -c "from knowledge.networkx_graph import build_fallback_graph; g = build_fallback_graph('data/kg_seed.json'); print(type(g).__name__)"
-```
-
-### 14.8 Running Tests
-
-```bash
-# All tests
-pytest tests/ -v
-
-# Unit tests only
-pytest tests/unit/ -v
-
-# Integration tests (requires Ollama running)
-pytest tests/integration/ -v
-
-# Fallback tests
-pytest tests/fallback/ -v
-
-# Performance tests
-pytest tests/performance/ -v --benchmark-min-rounds=10
-
-# With coverage
-pytest tests/ --cov=agent --cov=tools --cov-report=html
-```
-
-### 14.9 Launching Streamlit UI (Optional)
-
-```bash
-streamlit run app.py
-# Open: http://localhost:8501
-```
+- `main.py`, `app.py`
+- `agent/graph.py`, `agent/state.py`, `agent/nodes/*`
+- `tools/server.py`, `tools/query_graph.py`
+- `knowledge/networkx_graph.py`, `knowledge/cache_layer.py`
+- `ui/tabs.py`, `ui/preflight.py`, `ui/runner.py`
 
 ---
 
 ## 15. Future Roadmap (Post-MVP)
 
-### Phase 2 — Analytical Depth
-
-| Feature | Description | Priority |
-|---|---|---|
-| **Statistical Forecasting** | Integrate lightweight statsmodels (ARIMA / Exponential Smoothing) for trend-based demand forecasting on real historical data | High |
-| **ABC-XYZ Classification** | Automate SKU classification (velocity × variability) to refine safety stock recommendations | High |
-| **Multi-Location Support** | Extend data schema and KG to handle inventory across warehouses or store locations | Medium |
-| **Historical Run Comparison** | Track recommendation history per run_id; surface drift and repeated stockout patterns | Medium |
-
-### Phase 3 — Ecosystem Integration
-
-| Feature | Description | Priority |
-|---|---|---|
-| **ERP Read-Only Connector** | One-way adapter to pull live inventory snapshots from SAP/Oracle (no write-back; advisory only) | Medium |
-| **Webhook Notifications** | Push critical-status SKU alerts to Slack or email (human-reviewed, never automated orders) | Medium |
-| **Supplier Lead Time API** | Query supplier portals for current lead time estimates to improve reorder_urgency accuracy | Low |
-
-### Phase 4 — Intelligence Upgrades
-
-| Feature | Description | Priority |
-|---|---|---|
-| **Fine-Tuned LLM** | Fine-tune a small model on domain-specific inventory commentary to improve explanation quality | Medium |
-| **Feedback Loop** | Allow planners to rate explanations; log feedback to improve prompt templates | Medium |
-| **Anomaly Detection** | Flag SKUs with unusual velocity spikes or unexplained inventory drops | High |
-| **Multi-Agent Collaboration** | Separate specialized agents for demand sensing, supplier risk, and reorder optimization, orchestrated by a supervisor agent | Low |
-
-### Phase 5 — Production Hardening
-
-| Feature | Description | Priority |
-|---|---|---|
-| **Role-Based Access** | Per-user configuration profiles for planners vs. managers | Medium |
-| **Audit Log Compliance** | Immutable run history for audit trail and regulatory review | Medium |
-| **Cloud Deployment Option** | Containerized deployment on AWS ECS or GCP Cloud Run | Low |
-| **Real Data Certification** | Security review and data classification process to onboard real (non-mock) inventory data | High |
-
----
-
-*End of Document — PRD v1.0.0*
-
----
-
-> **⚠️ DOCUMENT DISCLAIMER**: This PRD describes a decision-support tool operating exclusively on synthetic mock data. It does not constitute a specification for any system that handles real commercial inventory, financial decisions, or procurement actions. All architectural decisions are subject to engineering review before implementation.
+1. Expand graph-derived risk features.
+2. Improve planner model compatibility profiles.
+3. Add stronger regression matrix for action-policy correctness.
+4. Add per-SKU on-demand raw CoT capture with redaction controls.
+5. Add benchmark framework for latency/quality tradeoff by mode and model.

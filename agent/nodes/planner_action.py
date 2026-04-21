@@ -314,6 +314,9 @@ def planner_action_node(state: AgentState) -> AgentState:
             "tool_name": action.get("tool_name", ""),
             "arguments": action.get("arguments", {}),
         }
+        #this fingerprinting approach is intentionally simple and not cryptographically secure, just a quick way to detect exact duplicates in tool calls which is a common failure mode for LLMs in this context. 
+        # It normalizes the tool name and arguments to ensure that semantically identical actions produce the same fingerprint even if there are minor formatting differences in the JSON output. 
+        # The use of sort_keys and ensure_ascii in json.dumps helps achieve this normalization.
         fingerprint = hashlib.sha1(
             json.dumps(normalized, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
         ).hexdigest()

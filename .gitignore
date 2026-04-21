@@ -6,6 +6,12 @@ __pycache__/
 # C extensions
 *.so
 
+
+#the pptx gen
+node_modules/
+package-lock.json
+package.json
+
 # Distribution / packaging
 .Python
 build/
@@ -134,7 +140,7 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-results/
+# results/
 # Environments
 .env
 .envrc

@@ -106,6 +106,8 @@ def _stream_reasoning_text(
     return "".join(parts).strip()
 
 
+
+#helper scrubs out markdown backticks if the LLM output fenced code blocks.
 def _parse_content_json(content: str) -> Dict[str, Any]:
     """Parse model content into JSON, tolerating fenced code blocks."""
     text = str(content or "").strip()
